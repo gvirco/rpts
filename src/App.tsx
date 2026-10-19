@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { PortfolioSnapshot, Position, Profile, Quote, Trade, TradeOrder, TradeSide, WatchlistItem } from './types'
+import { StockPriceChart } from './components/charts/StockPriceChart'
+import { PortfolioValueChart } from './components/charts/PortfolioValueChart'
+import { PortfolioProfitLossChart } from './components/charts/PortfolioProfitLossChart'
 import './App.css'
 
 type Page = 'portfolio' | 'trade' | 'history'
@@ -12,6 +15,22 @@ const quotes: Quote[] = [
   { symbol: 'MSFT', price: 521.17, currency: 'USD', asOf: '2026-10-19T15:30:00Z' },
   { symbol: 'TSLA', price: 348.12, currency: 'USD', asOf: '2026-10-19T15:30:00Z' },
   { symbol: 'AMZN', price: 226.84, currency: 'USD', asOf: '2026-10-19T15:30:00Z' },
+]
+const stockPriceHistory = [
+  { timestamp: '2026-10-13T14:30:00Z', price: 228.42 },
+  { timestamp: '2026-10-14T14:30:00Z', price: 231.18 },
+  { timestamp: '2026-10-15T14:30:00Z', price: 233.04 },
+  { timestamp: '2026-10-16T14:30:00Z', price: 230.76 },
+  { timestamp: '2026-10-17T14:30:00Z', price: 235.21 },
+  { timestamp: '2026-10-18T14:30:00Z', price: 237.49 },
+]
+const portfolioHistory: PortfolioSnapshot[] = [
+  { id: 'snap-1', userId: 'demo-user', timestamp: '2026-10-13T20:00:00Z', cashBalance: 6_233.8, positionsValue: 3_638.4, totalValue: 9_872.2, profitLoss: -127.8 },
+  { id: 'snap-2', userId: 'demo-user', timestamp: '2026-10-14T20:00:00Z', cashBalance: 6_233.8, positionsValue: 3_684.7, totalValue: 9_918.5, profitLoss: -81.5 },
+  { id: 'snap-3', userId: 'demo-user', timestamp: '2026-10-15T20:00:00Z', cashBalance: 6_233.8, positionsValue: 3_751.2, totalValue: 9_985, profitLoss: -15 },
+  { id: 'snap-4', userId: 'demo-user', timestamp: '2026-10-16T20:00:00Z', cashBalance: 6_233.8, positionsValue: 3_824.45, totalValue: 10_058.25, profitLoss: 58.25 },
+  { id: 'snap-5', userId: 'demo-user', timestamp: '2026-10-17T20:00:00Z', cashBalance: 6_233.8, positionsValue: 3_901.8, totalValue: 10_135.6, profitLoss: 135.6 },
+  { id: 'snap-6', userId: 'demo-user', timestamp: '2026-10-18T20:00:00Z', cashBalance: 6_233.8, positionsValue: 4_012.4, totalValue: 10_246.2, profitLoss: 246.2 },
 ]
 const initialProfile: Profile = { userId: 'demo-user', nickname: 'Alex Morgan', startingBalance: 10_000, cashBalance: 4_713.5 }
 const initialPositions: Position[] = [
@@ -156,6 +175,7 @@ function PortfolioScreen({ profile, positions, watchlist, snapshot, totals, onTr
     <div className="metrics-grid"><MetricCard label="Total portfolio value" value={money(totals.totalValue)} change="2.84%" caption="vs. last month" icon="grid" /><MetricCard label="Total profit / loss" value={`${totals.profitLoss >= 0 ? '+' : ''}${money(totals.profitLoss)}`} change="4.32%" caption="all time" positive={totals.profitLoss >= 0} icon="trade" /><MetricCard label="Cash available" value={money(profile.cashBalance)} caption="Ready to invest" icon="history" /><MetricCard label="Buying power" value={money(profile.cashBalance)} caption="Simulated account" icon="star" /></div>
     <div className="portfolio-grid"><div className="panel holdings-panel"><div className="panel-heading"><div><h2>Your holdings</h2><p>Stocks and shares in your portfolio</p></div><button className="subtle-link" onClick={onTrade}>Trade <Icon name="arrow" size={14} /></button></div>{positions.length ? <div className="table-scroll"><table><thead><tr><th>ASSET</th><th>SHARES</th><th>AVG. COST</th><th>PRICE</th><th>MARKET VALUE</th><th>RETURN</th></tr></thead><tbody>{positions.map((item) => { const current = priceFor(item.symbol); const pnl = (current - item.averageCost) * item.quantity; const change = (current - item.averageCost) / item.averageCost * 100; return <tr key={item.symbol}><td><div className="asset-cell"><AssetIcon symbol={item.symbol} /><span><b>{item.symbol}</b><small>{companyName(item.symbol)}</small></span></div></td><td>{item.quantity}</td><td>{money(item.averageCost)}</td><td>{money(current)}</td><td className="cell-strong">{money(current * item.quantity)}</td><td><span className={`return-pill ${pnl >= 0 ? 'positive' : 'negative'}`}>{pnl >= 0 ? '+' : ''}{change.toFixed(2)}%</span><small className="return-money">{pnl >= 0 ? '+' : ''}{money(pnl)}</small></td></tr> })}</tbody></table></div> : <EmptyState title="No holdings yet" body="Your purchased assets will appear here." action="Explore trading" onAction={onTrade} />}<div className="holdings-foot"><span>{positions.length} assets</span><span>Portfolio value <b>{money(totals.positionsValue)}</b></span></div></div>
       <div className="panel watchlist-panel"><div className="panel-heading"><div><h2>Watchlist</h2><p>Keep an eye on what matters</p></div><button className="icon-button plain" aria-label="Edit watchlist" onClick={() => onWatchlistChange([])}><Icon name="star" size={18} /></button></div>{watchlist.length ? <div className="watchlist-list">{watchlist.map((item) => { const quote = quotes.find((entry) => entry.symbol === item.symbol); if (!quote) return null; return <div className="watch-row" key={item.symbol}><AssetIcon symbol={item.symbol} /><div className="watch-name"><b>{item.symbol}</b><small>{companyName(item.symbol)}</small></div><div className="watch-price"><b>{money(quote.price)}</b><small className="positive-text">+{(2 + item.symbol.length * .23).toFixed(2)}%</small></div></div> })}</div> : <EmptyState title="Your watchlist is empty" body="Assets you follow will show up here." action="Restore demo list" onAction={() => onWatchlistChange(initialWatchlist)} />}<button className="watchlist-add" onClick={() => onWatchlistChange(initialWatchlist)}><span>+</span> Add to watchlist</button></div></div>
+    <div className="charts-grid"><StockPriceChart data={stockPriceHistory} symbol="AAPL" /><PortfolioValueChart data={portfolioHistory} /><PortfolioProfitLossChart data={portfolioHistory} /></div>
     <div className="demo-footnote"><span>ⓘ</span> Demo portfolio snapshot updated {snapshot ? dateLabel(snapshot.timestamp) : 'just now'}. All prices shown are mock data.</div>
   </section>
 }
