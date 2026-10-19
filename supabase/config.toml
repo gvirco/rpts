@@ -1,4 +1,4 @@
-# Edge Functions using publishable keys authenticate inside @supabase/server.
-# Supabase gateway legacy verify_jwt check must be disabled for this function.
+# Authenticated users call execute-trade with their signed-in JWT.
+# Keep the Supabase Edge gateway JWT verification enabled for user mode.
 [functions.execute-trade]
-verify_jwt = false
+verify_jwt = true
