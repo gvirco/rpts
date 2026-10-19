@@ -13,17 +13,17 @@ const quotes: Quote[] = [
   { symbol: 'TSLA', price: 348.12, currency: 'USD', asOf: '2026-10-19T15:30:00Z' },
   { symbol: 'AMZN', price: 226.84, currency: 'USD', asOf: '2026-10-19T15:30:00Z' },
 ]
-const initialProfile: Profile = { userId: 'demo-user', nickname: 'Alex Morgan', startingBalance: 100_000, cashBalance: 72_450.35 }
+const initialProfile: Profile = { userId: 'demo-user', nickname: 'Alex Morgan', startingBalance: 10_000, cashBalance: 4_713.5 }
 const initialPositions: Position[] = [
-  { symbol: 'AAPL', quantity: 40, averageCost: 198.4 },
-  { symbol: 'NVDA', quantity: 55, averageCost: 142.75 },
-  { symbol: 'MSFT', quantity: 20, averageCost: 476.2 },
+  { symbol: 'AAPL', quantity: 10, averageCost: 198.4 },
+  { symbol: 'NVDA', quantity: 12, averageCost: 142.75 },
+  { symbol: 'MSFT', quantity: 5, averageCost: 476.2 },
 ]
 const initialWatchlist: WatchlistItem[] = ['TSLA', 'AMZN', 'AAPL'].map((symbol) => ({ userId: initialProfile.userId, symbol }))
 const initialTrades: Trade[] = [
-  { id: 't-1', userId: initialProfile.userId, symbol: 'NVDA', side: 'BUY', quantity: 55, price: 142.75, executedAt: '2026-10-18T14:22:00Z' },
-  { id: 't-2', userId: initialProfile.userId, symbol: 'MSFT', side: 'BUY', quantity: 20, price: 476.2, executedAt: '2026-10-17T10:08:00Z' },
-  { id: 't-3', userId: initialProfile.userId, symbol: 'AAPL', side: 'BUY', quantity: 40, price: 198.4, executedAt: '2026-10-15T16:41:00Z' },
+  { id: 't-1', userId: initialProfile.userId, symbol: 'NVDA', side: 'BUY', quantity: 12, price: 142.75, executedAt: '2026-10-18T14:22:00Z' },
+  { id: 't-2', userId: initialProfile.userId, symbol: 'MSFT', side: 'BUY', quantity: 5, price: 476.2, executedAt: '2026-10-17T10:08:00Z' },
+  { id: 't-3', userId: initialProfile.userId, symbol: 'AAPL', side: 'BUY', quantity: 10, price: 198.4, executedAt: '2026-10-15T16:41:00Z' },
   { id: 't-4', userId: initialProfile.userId, symbol: 'AAPL', side: 'SELL', quantity: 10, price: 231.18, executedAt: '2026-10-14T13:17:00Z' },
 ]
 
@@ -39,10 +39,26 @@ const mockApi = {
   },
   async getTrades(): Promise<Trade[]> { await delay(650); return [...initialTrades] },
   async getQuote(symbol: string) { await delay(250); const quote = quotes.find((item) => item.symbol === symbol.toUpperCase()); if (!quote) throw new Error('No mock quote for that symbol. Try AAPL, NVDA, MSFT, TSLA or AMZN.'); return quote },
-  async submitTrade(order: TradeOrder): Promise<Trade> { await delay(500); return { ...order, id: `demo-${Date.now()}`, userId: initialProfile.userId, price: priceFor(order.symbol), executedAt: new Date().toISOString() } },
+  async submitTrade(order: TradeOrder, cashBalance: number, holdings: Position[]): Promise<Trade> {
+    await delay(500)
+    const price = priceFor(order.symbol)
+    const existing = holdings.find((position) => position.symbol === order.symbol)
+    if (order.side === 'BUY' && price * order.quantity > cashBalance) throw new Error('Insufficient demo cash for this order.')
+    if (order.side === 'SELL' && (!existing || existing.quantity < order.quantity)) throw new Error('Not enough demo shares to sell.')
+    return { ...order, id: `demo-${Date.now()}`, userId: initialProfile.userId, price, executedAt: new Date().toISOString() }
+  },
 }
 function delay(ms: number) { return new Promise((resolve) => window.setTimeout(resolve, ms)) }
 function priceFor(symbol: string) { return quotes.find((quote) => quote.symbol === symbol)?.price ?? 0 }
+function updatePositions(positions: Position[], trade: Trade): Position[] {
+  const existing = positions.find((position) => position.symbol === trade.symbol)
+  if (trade.side === 'BUY') {
+    if (!existing) return [...positions, { symbol: trade.symbol, quantity: trade.quantity, averageCost: trade.price }]
+    const quantity = existing.quantity + trade.quantity
+    return positions.map((position) => position.symbol === trade.symbol ? { ...position, quantity, averageCost: (position.averageCost * position.quantity + trade.price * trade.quantity) / quantity } : position)
+  }
+  return positions.map((position) => position.symbol === trade.symbol ? { ...position, quantity: position.quantity - trade.quantity } : position).filter((position) => position.quantity > 0)
+}
 function money(value: number) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value) }
 function dateLabel(value: string) { return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value)) }
 
@@ -114,12 +130,12 @@ function App() {
     </aside>
     {mobileMenu && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileMenu(false)} />}
     <main className="main-area">
-      <header className="topbar"><button className="menu-toggle" aria-label="Open navigation" onClick={() => setMobileMenu(true)}><span></span><span></span></button><div className="breadcrumb">Workspace <span>/</span> <b>{page[0].toUpperCase() + page.slice(1)}</b></div><div className="topbar-right"><span className="market-status"><i></i> Market open</span><button className="icon-button" aria-label="Notifications" onClick={() => setToast('You’re all caught up.')}><Icon name="bell" /></button><span className="top-avatar">{profile.nickname.slice(0, 1).toUpperCase()}</span></div></header>
+      <header className="topbar"><button className="menu-toggle" aria-label="Open navigation" onClick={() => setMobileMenu(true)}><span></span><span></span></button><div className="breadcrumb">Workspace <span>/</span> <b>{page[0].toUpperCase() + page.slice(1)}</b></div><div className="topbar-right"><span className="market-status">Demo market data</span><button className="icon-button" aria-label="Notifications" onClick={() => setToast('You’re all caught up.')}><Icon name="bell" /></button><span className="top-avatar">{profile.nickname.slice(0, 1).toUpperCase()}</span></div></header>
       <div className="content-wrap">
         <div className="demo-banner"><span className="demo-dot">i</span><span><b>Demo mode</b> — Mock data and simulated trades. No real money or orders.</span><button aria-label="Dismiss demo message" onClick={(event) => event.currentTarget.parentElement?.remove()}><Icon name="close" size={15} /></button></div>
         {loadState === 'loading' ? <LoadingState /> : loadState === 'error' ? <ErrorState message={loadError} onRetry={() => { setSignedIn(false); window.setTimeout(() => setSignedIn(true), 10) }} /> : <>
           {page === 'portfolio' && <PortfolioScreen profile={profile} positions={positions} watchlist={watchlist} snapshot={snapshot} totals={totals} onTrade={() => setPage('trade')} onWatchlistChange={setWatchlist} />}
-          {page === 'trade' && <TradeScreen onTrade={async (order) => { const executed = await mockApi.submitTrade(order); setTrades((items) => [executed, ...items]); setProfile((item) => ({ ...item, cashBalance: item.cashBalance + (order.side === 'SELL' ? executed.price * executed.quantity : -executed.price * executed.quantity) })); setToast(`${order.side} order simulated · ${order.quantity} ${order.symbol} at ${money(executed.price)}`) }} />}
+          {page === 'trade' && <TradeScreen onTrade={async (order) => { const executed = await mockApi.submitTrade(order, profile.cashBalance, positions); const cashDelta = executed.price * executed.quantity * (order.side === 'SELL' ? 1 : -1); setTrades((items) => [executed, ...items]); setProfile((item) => ({ ...item, cashBalance: item.cashBalance + cashDelta })); setPositions((items) => updatePositions(items, executed)); setToast(`${order.side} order simulated · ${order.quantity} ${order.symbol} at ${money(executed.price)}`) }} />}
           {page === 'history' && <HistoryScreen trades={trades} />}
         </>}
         <footer className="page-footer"><span>© 2026 Papertrade</span><span><i></i> All systems operational</span><span>For education only</span></footer>
@@ -151,7 +167,7 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<void
   const [symbol, setSymbol] = useState('AAPL'); const [side, setSide] = useState<TradeSide>('BUY'); const [quantity, setQuantity] = useState('10'); const [quote, setQuote] = useState<Quote | null>(quotes[0]); const [quoteState, setQuoteState] = useState<LoadState>('ready'); const [error, setError] = useState(''); const [submitting, setSubmitting] = useState(false); const [success, setSuccess] = useState('')
   const total = quote ? quote.price * (Number(quantity) || 0) : 0
   async function lookup(value: string) { setSymbol(value.toUpperCase()); setSuccess(''); if (!value.trim()) { setQuote(null); setQuoteState('ready'); return }; setQuoteState('loading'); setError(''); try { const result = await mockApi.getQuote(value); setQuote(result); setQuoteState('ready') } catch (cause) { setQuote(null); setError(cause instanceof Error ? cause.message : 'Quote unavailable.'); setQuoteState('error') } }
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!quote || Number(quantity) < 1 || !Number.isInteger(Number(quantity))) { setError('Enter a whole number of shares and a supported symbol.'); return }; if (side === 'SELL' && total > 0) { /* simulated account supports order preview for either side */ }; setSubmitting(true); setError(''); try { await onTrade({ symbol: quote.symbol, side, quantity: Number(quantity) }); setSuccess(`${side} ${quantity} ${quote.symbol} · ${money(total)} simulated`); } catch { setError('Trade preview failed. Please try again.') } finally { setSubmitting(false) } }
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!quote || Number(quantity) < 1 || !Number.isInteger(Number(quantity))) { setError('Enter a whole number of shares and a supported symbol.'); return }; setSubmitting(true); setError(''); try { await onTrade({ symbol: quote.symbol, side, quantity: Number(quantity) }); setSuccess(`${side} ${quantity} ${quote.symbol} · ${money(total)} simulated`); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Trade preview failed. Please try again.') } finally { setSubmitting(false) } }
   return <section className="screen"><div className="screen-heading"><div><div className="eyebrow">PAPER TRADING</div><h1>Make a trade</h1><p>Practice your strategy with simulated orders.</p></div></div><div className="trade-layout"><div className="panel trade-panel"><div className="panel-heading"><div><h2>Order ticket</h2><p>Build a simulated trade</p></div><span className="simulated-badge">SIMULATED</span></div><form className="trade-form" onSubmit={submit}><div className="form-label-row"><label htmlFor="trade-symbol">Stock symbol</label><span>Mock quote</span></div><div className="symbol-input-wrap"><Icon name="search" size={18} /><input id="trade-symbol" value={symbol} onChange={(event) => void lookup(event.target.value)} placeholder="Search symbol" autoComplete="off" /><button type="button" className="clear-input" aria-label="Clear symbol" onClick={() => void lookup('')}><Icon name="close" size={15} /></button></div>{quoteState === 'loading' && <div className="inline-state">Fetching mock quote…</div>}{quoteState === 'error' && <div className="inline-error">{error}</div>}{quote && quoteState === 'ready' && <div className="quote-preview"><AssetIcon symbol={quote.symbol} /><div><b>{quote.symbol}</b><small>{companyName(quote.symbol)}</small></div><div className="quote-current"><b>{money(quote.price)}</b><small>Latest mock price</small></div></div>}<label className="field-label">Order type</label><div className="side-toggle"><button className={side === 'BUY' ? 'selected buy' : ''} type="button" onClick={() => setSide('BUY')}>Buy</button><button className={side === 'SELL' ? 'selected sell' : ''} type="button" onClick={() => setSide('SELL')}>Sell</button></div><label className="field-label" htmlFor="trade-quantity">Quantity <span>Shares</span></label><div className="quantity-wrap"><input id="trade-quantity" type="number" min="1" step="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} required /><span>SHARES</span></div><div className="order-summary"><div><span>Estimated price</span><b>{quote ? money(quote.price) : '—'}</b></div><div><span>Estimated total</span><b>{quote ? money(total) : '—'}</b></div><small>Final execution price may differ. This is only a simulation.</small></div>{error && quoteState !== 'error' && <div className="inline-error">{error}</div>}{success && <div className="success-message"><span>✓</span>{success}</div>}<button className={`button-primary submit-trade ${side === 'SELL' ? 'sell-button' : ''}`} type="submit" disabled={submitting || !quote || quoteState === 'loading'}>{submitting ? 'Simulating…' : `Preview ${side.toLowerCase()} order`} <Icon name="arrow" size={17} /></button></form></div><div className="trade-aside"><div className="panel market-panel"><div className="panel-heading"><div><h2>Popular stocks</h2><p>Mock market prices</p></div></div><div className="popular-list">{quotes.map((item, index) => <button className="popular-row" key={item.symbol} onClick={() => void lookup(item.symbol)}><AssetIcon symbol={item.symbol} /><span><b>{item.symbol}</b><small>{companyName(item.symbol)}</small></span><strong>{money(item.price)}</strong><span className="positive-text">+{(1.2 + index * .57).toFixed(2)}%</span></button>)}</div><div className="market-footnote">Prices are illustrative mock data.</div></div><div className="info-card"><span className="info-icon">✳</span><div><b>Practice makes progress</b><p>Orders are simulated using the mock quote shown above. Nothing is sent to a real exchange.</p></div></div></div></div></section>
 }
 
