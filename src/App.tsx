@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import type { PortfolioSnapshot, Position, Profile, Quote, Trade, TradeOrder, TradeSide, WatchlistItem } from './types'
+import type { PortfolioSnapshot, Position, Profile, Trade, TradeOrder, TradeSide, WatchlistItem } from './types'
 import { signIn, signUp, signOut, getMyProfile } from './lib/auth'
 import { supabase } from './lib/supabase'
 import { getMyPortfolioData } from './lib/portfolio'
+import { executePaperTrade } from './lib/trading'
+import type { PaperTradeResult } from './lib/trading'
 import { StockPriceChart } from './components/charts/StockPriceChart'
 import { PortfolioValueChart } from './components/charts/PortfolioValueChart'
 import { PortfolioProfitLossChart } from './components/charts/PortfolioProfitLossChart'
@@ -12,13 +14,15 @@ import './App.css'
 type Page = 'portfolio' | 'trade' | 'history'
 type LoadState = 'loading' | 'ready' | 'error'
 
-const quotes: Quote[] = [
-  { symbol: 'AAPL', price: 237.49, currency: 'USD', asOf: '2026-10-19T15:30:00Z' },
-  { symbol: 'NVDA', price: 184.28, currency: 'USD', asOf: '2026-10-19T15:30:00Z' },
-  { symbol: 'MSFT', price: 521.17, currency: 'USD', asOf: '2026-10-19T15:30:00Z' },
-  { symbol: 'TSLA', price: 348.12, currency: 'USD', asOf: '2026-10-19T15:30:00Z' },
-  { symbol: 'AMZN', price: 226.84, currency: 'USD', asOf: '2026-10-19T15:30:00Z' },
+const testSymbols = ['AAPL', 'MSFT', 'NVDA'] as const
+const quotes = [
+  { symbol: 'AAPL', price: 237.49 },
+  { symbol: 'NVDA', price: 184.28 },
+  { symbol: 'MSFT', price: 521.17 },
+  { symbol: 'TSLA', price: 348.12 },
+  { symbol: 'AMZN', price: 226.84 },
 ]
+
 const stockPriceHistory = [
   { timestamp: '2026-10-13T14:30:00Z', price: 228.42 },
   { timestamp: '2026-10-14T14:30:00Z', price: 231.18 },
@@ -28,42 +32,7 @@ const stockPriceHistory = [
   { timestamp: '2026-10-18T14:30:00Z', price: 237.49 },
 ]
 const initialProfile: Profile = { userId: 'demo-user', nickname: 'Alex Morgan', startingBalance: 10_000, cashBalance: 4_713.5 }
-const initialPositions: Position[] = [
-  { symbol: 'AAPL', quantity: 10, averageCost: 198.4 },
-  { symbol: 'NVDA', quantity: 12, averageCost: 142.75 },
-  { symbol: 'MSFT', quantity: 5, averageCost: 476.2 },
-]
 const initialWatchlist: WatchlistItem[] = ['TSLA', 'AMZN', 'AAPL'].map((symbol) => ({ userId: initialProfile.userId, symbol }))
-const initialTrades: Trade[] = [
-  { id: 't-1', userId: initialProfile.userId, symbol: 'NVDA', side: 'BUY', quantity: 12, price: 142.75, executedAt: '2026-10-18T14:22:00Z' },
-  { id: 't-2', userId: initialProfile.userId, symbol: 'MSFT', side: 'BUY', quantity: 5, price: 476.2, executedAt: '2026-10-17T10:08:00Z' },
-  { id: 't-3', userId: initialProfile.userId, symbol: 'AAPL', side: 'BUY', quantity: 10, price: 198.4, executedAt: '2026-10-15T16:41:00Z' },
-  { id: 't-4', userId: initialProfile.userId, symbol: 'AAPL', side: 'SELL', quantity: 10, price: 231.18, executedAt: '2026-10-14T13:17:00Z' },
-]
-
-// Replace these mock functions with an API or auth provider without changing the screens.
-const mockApi = {
-  async signIn(email: string, password: string) { await delay(450); if (!password) throw new Error('Password is required.'); return { ...initialProfile, nickname: email.split('@')[0] || initialProfile.nickname } },
-  async signUp(name: string, email: string, password: string) { await delay(450); if (!email || !password) throw new Error('Email and password are required.'); return { ...initialProfile, nickname: name || initialProfile.nickname } },
-  async getPortfolio(): Promise<{ profile: Profile; positions: Position[]; watchlist: WatchlistItem[]; snapshot: PortfolioSnapshot }> {
-    await delay(650)
-    const positionsValue = initialPositions.reduce((sum, position) => sum + position.quantity * priceFor(position.symbol), 0)
-    const snapshot: PortfolioSnapshot = { id: 'snapshot-demo', userId: initialProfile.userId, timestamp: new Date().toISOString(), cashBalance: initialProfile.cashBalance, positionsValue, totalValue: initialProfile.cashBalance + positionsValue, profitLoss: initialProfile.cashBalance + positionsValue - initialProfile.startingBalance }
-    return { profile: initialProfile, positions: [...initialPositions], watchlist: [...initialWatchlist], snapshot }
-  },
-  async getTrades(): Promise<Trade[]> { await delay(650); return [...initialTrades] },
-  async getQuote(symbol: string) { await delay(250); const quote = quotes.find((item) => item.symbol === symbol.toUpperCase()); if (!quote) throw new Error('No mock quote for that symbol. Try AAPL, NVDA, MSFT, TSLA or AMZN.'); return quote },
-  async submitTrade(order: TradeOrder, cashBalance: number, holdings: Position[]): Promise<Trade> {
-    await delay(500)
-    const price = priceFor(order.symbol)
-    const existing = holdings.find((position) => position.symbol === order.symbol)
-    if (order.side === 'BUY' && price * order.quantity > cashBalance) throw new Error('Insufficient demo cash for this order.')
-    if (order.side === 'SELL' && (!existing || existing.quantity < order.quantity)) throw new Error('Not enough demo shares to sell.')
-    return { ...order, id: `demo-${Date.now()}`, userId: initialProfile.userId, price, executedAt: new Date().toISOString() }
-  },
-}
-function delay(ms: number) { return new Promise((resolve) => window.setTimeout(resolve, ms)) }
-function priceFor(symbol: string) { return quotes.find((quote) => quote.symbol === symbol)?.price ?? 0 }
 function money(value: number) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value) }
 function dateLabel(value: string) { return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value)) }
 
@@ -185,6 +154,25 @@ function App() {
     }
   }
 
+  async function handleTrade(order: TradeOrder): Promise<PaperTradeResult> {
+    const result = await executePaperTrade(order)
+    // The trade is committed at this point. A read failure must never be
+    // presented as a failed order, which might cause the user to submit twice.
+    try {
+      const [userProfile, portfolio] = await Promise.all([getMyProfile(), getMyPortfolioData()])
+      if (!userProfile) throw new Error('Account profile not found.')
+      setProfile(userProfile)
+      setPositions(portfolio.positions)
+      setTrades(portfolio.trades)
+      setWatchlist(portfolio.watchlist)
+      setPortfolioSnapshots(portfolio.snapshots)
+      setSnapshot(portfolio.snapshots.at(-1) ?? null)
+    } catch {
+      setToast('Trade saved successfully, but the portfolio refresh failed. Reload the page to see current values.')
+    }
+    return result
+  }
+
   async function handleSignOut() {
     const { error } = await signOut()
     if (error) setToast(error.message)
@@ -211,10 +199,10 @@ function App() {
     <main className="main-area">
       <header className="topbar"><button className="menu-toggle" aria-label="Open navigation" onClick={() => setMobileMenu(true)}><span></span><span></span></button><div className="breadcrumb">Workspace <span>/</span> <b>{page[0].toUpperCase() + page.slice(1)}</b></div><div className="topbar-right"><span className="market-status">Demo market data</span><button className="icon-button" aria-label="Notifications" onClick={() => setToast('You’re all caught up.')}><Icon name="bell" /></button><span className="top-avatar">{profile.nickname.slice(0, 1).toUpperCase()}</span></div></header>
       <div className="content-wrap">
-        <div className="demo-banner"><span className="demo-dot">i</span><span><b>Demo mode</b> — Mock data and simulated trades. No real money or orders.</span><button aria-label="Dismiss demo message" onClick={(event) => event.currentTarget.parentElement?.remove()}><Icon name="close" size={15} /></button></div>
+        <div className="demo-banner"><span className="demo-dot">i</span><span><b>Paper trading</b> — Simulated orders are saved in Supabase using server test prices. Market charts remain mock data. No real money is traded.</span><button aria-label="Dismiss demo message" onClick={(event) => event.currentTarget.parentElement?.remove()}><Icon name="close" size={15} /></button></div>
         {loadState === 'loading' ? <LoadingState /> : loadState === 'error' ? <ErrorState message={loadError} onRetry={() => { setSignedIn(false); window.setTimeout(() => setSignedIn(true), 10) }} /> : <>
           {page === 'portfolio' && <PortfolioScreen profile={profile} positions={positions} watchlist={watchlist} snapshot={snapshot} portfolioSnapshots={portfolioSnapshots} totals={totals} onTrade={() => setPage('trade')} onWatchlistChange={setWatchlist} />}
-          {page === 'trade' && <TradeScreen onTrade={async () => { throw new Error('Trade submission is being connected to the secure backend. No order was placed.') }} />}
+          {page === 'trade' && <TradeScreen onTrade={handleTrade} />}
           {page === 'history' && <HistoryScreen trades={trades} />}
         </>}
         <footer className="page-footer"><span>© 2026 Papertrade</span><span><i></i> All systems operational</span><span>For education only</span></footer>
@@ -243,15 +231,106 @@ function MetricCard({ label, value, change, caption, positive, icon }: { label: 
 function AssetIcon({ symbol }: { symbol: string }) { return <span className={`asset-icon asset-${symbol.toLowerCase()}`}>{symbol.slice(0, 1)}</span> }
 function companyName(symbol: string) { return ({ AAPL: 'Apple Inc.', NVDA: 'NVIDIA Corp.', MSFT: 'Microsoft', TSLA: 'Tesla, Inc.', AMZN: 'Amazon.com' } as Record<string, string>)[symbol] ?? symbol }
 
-function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<void> }) {
-  const [symbol, setSymbol] = useState('AAPL'); const [side, setSide] = useState<TradeSide>('BUY'); const [quantity, setQuantity] = useState('10'); const [quote, setQuote] = useState<Quote | null>(quotes[0]); const [quoteState, setQuoteState] = useState<LoadState>('ready'); const [error, setError] = useState(''); const [submitting, setSubmitting] = useState(false); const [success, setSuccess] = useState('')
-  const total = quote ? quote.price * (Number(quantity) || 0) : 0
-  async function lookup(value: string) { setSymbol(value.toUpperCase()); setSuccess(''); if (!value.trim()) { setQuote(null); setQuoteState('ready'); return }; setQuoteState('loading'); setError(''); try { const result = await mockApi.getQuote(value); setQuote(result); setQuoteState('ready') } catch (cause) { setQuote(null); setError(cause instanceof Error ? cause.message : 'Quote unavailable.'); setQuoteState('error') } }
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!quote || Number(quantity) < 1 || !Number.isInteger(Number(quantity))) { setError('Enter a whole number of shares and a supported symbol.'); return }; setSubmitting(true); setError(''); try { await onTrade({ symbol: quote.symbol, side, quantity: Number(quantity) }); setSuccess(`${side} ${quantity} ${quote.symbol} · ${money(total)} simulated`); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Trade preview failed. Please try again.') } finally { setSubmitting(false) } }
-  return <section className="screen"><div className="screen-heading"><div><div className="eyebrow">PAPER TRADING</div><h1>Make a trade</h1><p>Practice your strategy with simulated orders.</p></div></div><div className="trade-layout"><div className="panel trade-panel"><div className="panel-heading"><div><h2>Order ticket</h2><p>Build a simulated trade</p></div><span className="simulated-badge">SIMULATED</span></div><form className="trade-form" onSubmit={submit}><div className="form-label-row"><label htmlFor="trade-symbol">Stock symbol</label><span>Mock quote</span></div><div className="symbol-input-wrap"><Icon name="search" size={18} /><input id="trade-symbol" value={symbol} onChange={(event) => void lookup(event.target.value)} placeholder="Search symbol" autoComplete="off" /><button type="button" className="clear-input" aria-label="Clear symbol" onClick={() => void lookup('')}><Icon name="close" size={15} /></button></div>{quoteState === 'loading' && <div className="inline-state">Fetching mock quote…</div>}{quoteState === 'error' && <div className="inline-error">{error}</div>}{quote && quoteState === 'ready' && <div className="quote-preview"><AssetIcon symbol={quote.symbol} /><div><b>{quote.symbol}</b><small>{companyName(quote.symbol)}</small></div><div className="quote-current"><b>{money(quote.price)}</b><small>Latest mock price</small></div></div>}<label className="field-label">Order type</label><div className="side-toggle"><button className={side === 'BUY' ? 'selected buy' : ''} type="button" onClick={() => setSide('BUY')}>Buy</button><button className={side === 'SELL' ? 'selected sell' : ''} type="button" onClick={() => setSide('SELL')}>Sell</button></div><label className="field-label" htmlFor="trade-quantity">Quantity <span>Shares</span></label><div className="quantity-wrap"><input id="trade-quantity" type="number" min="1" step="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} required /><span>SHARES</span></div><div className="order-summary"><div><span>Estimated price</span><b>{quote ? money(quote.price) : '—'}</b></div><div><span>Estimated total</span><b>{quote ? money(total) : '—'}</b></div><small>Final execution price may differ. This is only a simulation.</small></div>{error && quoteState !== 'error' && <div className="inline-error">{error}</div>}{success && <div className="success-message"><span>✓</span>{success}</div>}<button className={`button-primary submit-trade ${side === 'SELL' ? 'sell-button' : ''}`} type="submit" disabled={submitting || !quote || quoteState === 'loading'}>{submitting ? 'Simulating…' : `Preview ${side.toLowerCase()} order`} <Icon name="arrow" size={17} /></button></form></div><div className="trade-aside"><div className="panel market-panel"><div className="panel-heading"><div><h2>Popular stocks</h2><p>Mock market prices</p></div></div><div className="popular-list">{quotes.map((item, index) => <button className="popular-row" key={item.symbol} onClick={() => void lookup(item.symbol)}><AssetIcon symbol={item.symbol} /><span><b>{item.symbol}</b><small>{companyName(item.symbol)}</small></span><strong>{money(item.price)}</strong><span className="positive-text">+{(1.2 + index * .57).toFixed(2)}%</span></button>)}</div><div className="market-footnote">Prices are illustrative mock data.</div></div><div className="info-card"><span className="info-icon">✳</span><div><b>Practice makes progress</b><p>Orders are simulated using the mock quote shown above. Nothing is sent to a real exchange.</p></div></div></div></div></section>
+function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<PaperTradeResult> }) {
+  const [symbol, setSymbol] = useState('AAPL')
+  const [side, setSide] = useState<TradeSide>('BUY')
+  const [quantity, setQuantity] = useState('1')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [success, setSuccess] = useState('')
+
+  const normalizedSymbol = symbol.trim().toUpperCase()
+  const isSupportedSymbol = testSymbols.some((item) => item === normalizedSymbol)
+  const shares = Number(quantity)
+  const isValidQuantity = Number.isSafeInteger(shares) && shares > 0 && shares <= 10000
+
+  function selectSymbol(value: string) {
+    setSymbol(value.toUpperCase())
+    setError('')
+    setSuccess('')
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!isSupportedSymbol || !isValidQuantity) {
+      setError('Enter AAPL, MSFT or NVDA and a positive whole-share quantity (max 10,000).')
+      return
+    }
+
+    const agreed = window.confirm(
+      'Execute simulated ' + side + ' order for ' + shares + ' ' + normalizedSymbol +
+      '? The backend will determine the price using temporary test quotes.'
+    )
+    if (!agreed) return
+
+    setSubmitting(true)
+    setError('')
+    setSuccess('')
+    try {
+      const executed = await onTrade({ symbol: normalizedSymbol, side, quantity: shares })
+      setSuccess(
+        'Saved ' + side + ' ' + shares + ' ' + normalizedSymbol +
+        ' at ' + money(executed.executionPrice) + ' per share.'
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not execute paper trade.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return <section className="screen">
+    <div className="screen-heading"><div><div className="eyebrow">PAPER TRADING</div><h1>Make a trade</h1><p>Trade using server-controlled test prices. No real money involved.</p></div></div>
+    <div className="trade-layout">
+      <div className="panel trade-panel">
+        <div className="panel-heading"><div><h2>Order ticket</h2><p>Saved to your Supabase paper portfolio</p></div><span className="simulated-badge">SIMULATED</span></div>
+        <form className="trade-form" onSubmit={(event) => void submit(event)}>
+          <div className="form-label-row"><label htmlFor="trade-symbol">Stock symbol</label><span>AAPL, MSFT, NVDA</span></div>
+          <div className="symbol-input-wrap">
+            <Icon name="search" size={18} />
+            <input id="trade-symbol" value={symbol} onChange={(event) => selectSymbol(event.target.value)} placeholder="AAPL" autoComplete="off" />
+            <button type="button" className="clear-input" aria-label="Clear symbol" onClick={() => selectSymbol('')}><Icon name="close" size={15} /></button>
+          </div>
+          {isSupportedSymbol && <div className="quote-preview"><AssetIcon symbol={normalizedSymbol} /><div><b>{normalizedSymbol}</b><small>{companyName(normalizedSymbol)}</small></div><div className="quote-current"><b>Server-priced</b><small>Temporary test quote</small></div></div>}
+          <label className="field-label">Order type</label>
+          <div className="side-toggle">
+            <button className={side === 'BUY' ? 'selected buy' : ''} type="button" onClick={() => { setSide('BUY'); setError(''); setSuccess('') }}>Buy</button>
+            <button className={side === 'SELL' ? 'selected sell' : ''} type="button" onClick={() => { setSide('SELL'); setError(''); setSuccess('') }}>Sell</button>
+          </div>
+          <label className="field-label" htmlFor="trade-quantity">Quantity <span>Shares</span></label>
+          <div className="quantity-wrap">
+            <input id="trade-quantity" type="number" min="1" max="10000" step="1" value={quantity} onChange={(event) => { setQuantity(event.target.value); setError(''); setSuccess('') }} required />
+            <span>SHARES</span>
+          </div>
+          <div className="order-summary">
+            <div><span>Execution price</span><b>Determined by server</b></div>
+            <div><span>Estimated total</span><b>Unavailable in test mode</b></div>
+            <small>Test quotes are set by the backend (Issue #7). Real market quotes are being added in Issue #5.</small>
+          </div>
+          {error && <div className="inline-error" role="alert">{error}</div>}
+          {success && <div className="success-message" role="status"><span>✓</span>{success}</div>}
+          <button className={'button-primary submit-trade ' + (side === 'SELL' ? 'sell-button' : '')} type="submit" disabled={submitting || !isSupportedSymbol || !isValidQuantity}>
+            {submitting ? 'Executing…' : 'Execute paper ' + side.toLowerCase()} <Icon name="arrow" size={17} />
+          </button>
+        </form>
+      </div>
+      <div className="trade-aside">
+        <div className="panel market-panel">
+          <div className="panel-heading"><div><h2>Test symbols</h2><p>Symbols supported by the trading backend</p></div></div>
+          <div className="popular-list">{testSymbols.map((item) =>
+            <button className="popular-row" key={item} onClick={() => selectSymbol(item)}>
+              <AssetIcon symbol={item} /><span><b>{item}</b><small>{companyName(item)}</small></span><strong>Test mode</strong>
+            </button>
+          )}</div>
+          <div className="market-footnote">Prices are not previewed. The execution confirmation shows the price actually recorded by the server.</div>
+        </div>
+        <div className="info-card"><span className="info-icon">✳</span><div><b>Practice makes progress</b><p>Orders are persisted in your simulated portfolio but never sent to an exchange.</p></div></div>
+      </div>
+    </div>
+  </section>
 }
 
-function HistoryScreen({ trades }: { trades: Trade[] }) { const [filter, setFilter] = useState<'ALL' | TradeSide>('ALL'); const [query, setQuery] = useState(''); const visible = trades.filter((trade) => (filter === 'ALL' || trade.side === filter) && trade.symbol.toLowerCase().includes(query.toLowerCase())); return <section className="screen"><div className="screen-heading"><div><div className="eyebrow">YOUR ACTIVITY</div><h1>Trade history</h1><p>Review your simulated orders and activity.</p></div><span className="simulated-badge history-badge">MOCK DATA</span></div><div className="panel history-panel"><div className="history-tools"><div className="history-tabs"><button className={filter === 'ALL' ? 'selected' : ''} onClick={() => setFilter('ALL')}>All activity</button><button className={filter === 'BUY' ? 'selected' : ''} onClick={() => setFilter('BUY')}>Buys</button><button className={filter === 'SELL' ? 'selected' : ''} onClick={() => setFilter('SELL')}>Sells</button></div><label className="history-search"><Icon name="search" size={17} /><input aria-label="Search symbols" placeholder="Search symbol" value={query} onChange={(event) => setQuery(event.target.value)} /></label></div>{visible.length ? <div className="table-scroll"><table className="history-table"><thead><tr><th>ASSET</th><th>TYPE</th><th>QUANTITY</th><th>PRICE / SHARE</th><th>TOTAL VALUE</th><th>DATE & TIME</th><th>STATUS</th></tr></thead><tbody>{visible.map((trade) => <tr key={trade.id}><td><div className="asset-cell"><AssetIcon symbol={trade.symbol} /><span><b>{trade.symbol}</b><small>{companyName(trade.symbol)}</small></span></div></td><td><span className={`trade-type ${trade.side.toLowerCase()}`}>{trade.side}</span></td><td>{trade.quantity} shares</td><td>{money(trade.price)}</td><td className="cell-strong">{money(trade.price * trade.quantity)}</td><td>{dateLabel(trade.executedAt)}</td><td><span className="status-complete"><i></i> Simulated</span></td></tr>)}</tbody></table></div> : <EmptyState title={trades.length ? 'No matching activity' : 'No trades yet'} body={trades.length ? 'Try another symbol or activity filter.' : 'Your simulated trades will appear here.'} />}{visible.length > 0 && <div className="history-foot"><span>Showing {visible.length} of {trades.length} transactions</span><span>Demo activity only</span></div>}</div><div className="demo-footnote"><span>ⓘ</span> This history contains simulated orders for demonstration purposes.</div></section> }
+function HistoryScreen({ trades }: { trades: Trade[] }) { const [filter, setFilter] = useState<'ALL' | TradeSide>('ALL'); const [query, setQuery] = useState(''); const visible = trades.filter((trade) => (filter === 'ALL' || trade.side === filter) && trade.symbol.toLowerCase().includes(query.toLowerCase())); return <section className="screen"><div className="screen-heading"><div><div className="eyebrow">YOUR ACTIVITY</div><h1>Trade history</h1><p>Review your simulated orders and activity.</p></div><span className="simulated-badge history-badge">PAPER TRADES</span></div><div className="panel history-panel"><div className="history-tools"><div className="history-tabs"><button className={filter === 'ALL' ? 'selected' : ''} onClick={() => setFilter('ALL')}>All activity</button><button className={filter === 'BUY' ? 'selected' : ''} onClick={() => setFilter('BUY')}>Buys</button><button className={filter === 'SELL' ? 'selected' : ''} onClick={() => setFilter('SELL')}>Sells</button></div><label className="history-search"><Icon name="search" size={17} /><input aria-label="Search symbols" placeholder="Search symbol" value={query} onChange={(event) => setQuery(event.target.value)} /></label></div>{visible.length ? <div className="table-scroll"><table className="history-table"><thead><tr><th>ASSET</th><th>TYPE</th><th>QUANTITY</th><th>PRICE / SHARE</th><th>TOTAL VALUE</th><th>DATE & TIME</th><th>STATUS</th></tr></thead><tbody>{visible.map((trade) => <tr key={trade.id}><td><div className="asset-cell"><AssetIcon symbol={trade.symbol} /><span><b>{trade.symbol}</b><small>{companyName(trade.symbol)}</small></span></div></td><td><span className={`trade-type ${trade.side.toLowerCase()}`}>{trade.side}</span></td><td>{trade.quantity} shares</td><td>{money(trade.price)}</td><td className="cell-strong">{money(trade.price * trade.quantity)}</td><td>{dateLabel(trade.executedAt)}</td><td><span className="status-complete"><i></i> Simulated</span></td></tr>)}</tbody></table></div> : <EmptyState title={trades.length ? 'No matching activity' : 'No trades yet'} body={trades.length ? 'Try another symbol or activity filter.' : 'Your simulated trades will appear here.'} />}{visible.length > 0 && <div className="history-foot"><span>Showing {visible.length} of {trades.length} transactions</span><span>Demo activity only</span></div>}</div><div className="demo-footnote"><span>ⓘ</span> This history contains simulated orders for demonstration purposes.</div></section> }
 
 function EmptyState({ title, body, action, onAction }: { title: string; body: string; action?: string; onAction?: () => void }) { return <div className="empty-state"><span className="empty-icon"><Icon name="search" size={22} /></span><b>{title}</b><p>{body}</p>{action && onAction && <button className="subtle-link" onClick={onAction}>{action} <Icon name="arrow" size={14} /></button>}</div> }
 function LoadingState() { return <div className="loading-state"><span className="spinner"></span><b>Loading your account</b><p>Checking your Supabase session…</p></div> }
