@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { PortfolioSnapshot, Position, Profile, Quote, Trade, TradeOrder, TradeSide, WatchlistItem } from './types'
+import { signIn, signUp, signOut, getMyProfile } from './lib/auth'
+import { supabase } from './lib/supabase'
 import { StockPriceChart } from './components/charts/StockPriceChart'
 import { PortfolioValueChart } from './components/charts/PortfolioValueChart'
 import { PortfolioProfitLossChart } from './components/charts/PortfolioProfitLossChart'
@@ -99,24 +101,66 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
 
 function App() {
   const [signedIn, setSignedIn] = useState(false)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [authSubmitting, setAuthSubmitting] = useState(false)
+  const [authError, setAuthError] = useState('')
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
   const [page, setPage] = useState<Page>('portfolio')
   const [profile, setProfile] = useState<Profile>(initialProfile)
-  const [positions, setPositions] = useState(initialPositions)
-  const [watchlist, setWatchlist] = useState(initialWatchlist)
-  const [trades, setTrades] = useState(initialTrades)
+  // No shared demo holdings/history are exposed to a newly authenticated account.
+  // Per-user DB reads and real orders are wired in the next integration slice.
+  const [positions, setPositions] = useState<Position[]>([])
+  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([])
+  const [trades, setTrades] = useState<Trade[]>([])
   const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null)
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [loadError, setLoadError] = useState('')
   const [toast, setToast] = useState('')
   const [mobileMenu, setMobileMenu] = useState(false)
 
+  // Supabase emits INITIAL_SESSION and subsequent sign-in/sign-out events.
+  // Perform async Supabase queries outside the auth callback to avoid auth-lock deadlocks.
   useEffect(() => {
-    if (!signedIn) return
-    Promise.all([mockApi.getPortfolio(), mockApi.getTrades()]).then(([portfolio, history]) => {
-      setProfile(portfolio.profile); setPositions(portfolio.positions); setWatchlist(portfolio.watchlist); setSnapshot(portfolio.snapshot); setTrades(history); setLoadState('ready')
-    }).catch(() => { setLoadError('We couldn’t load your demo portfolio. Please try again.'); setLoadState('error') })
-  }, [signedIn])
+    let active = true
+    let generation = 0
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const request = ++generation
+      setAuthLoading(true)
+
+      window.setTimeout(() => {
+        if (!active || request !== generation) return
+
+        if (!session) {
+          setSignedIn(false)
+          setProfile(initialProfile)
+          setPositions([])
+          setWatchlist([])
+          setTrades([])
+          setSnapshot(null)
+          setLoadState('ready')
+          setAuthLoading(false)
+          return
+        }
+
+        void getMyProfile().then((userProfile) => {
+          if (!active || request !== generation) return
+          if (!userProfile) throw new Error('Account profile not found in Supabase.')
+          setProfile(userProfile)
+          setAuthError('')
+          setLoadState('ready')
+          setSignedIn(true)
+          setAuthLoading(false)
+        }).catch((error: unknown) => {
+          if (!active || request !== generation) return
+          setSignedIn(false)
+          setAuthError(error instanceof Error ? error.message : 'Unable to load account profile.')
+          setAuthLoading(false)
+        })
+      }, 0)
+    })
+
+    return () => { active = false; subscription.unsubscribe() }
+  }, [])
 
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3500); return () => window.clearTimeout(timer) }, [toast])
 
@@ -126,12 +170,35 @@ function App() {
   }, [positions, profile])
 
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const data = new FormData(event.currentTarget); const email = String(data.get('email') ?? ''); const password = String(data.get('password') ?? '')
-    try { const result = authMode === 'signup' ? await mockApi.signUp(String(data.get('name') ?? ''), email, password) : await mockApi.signIn(email, password); setProfile(result); setSignedIn(true) }
-    catch { setToast('Could not sign in. Please try again.') }
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const email = String(form.get('email') ?? '').trim()
+    const password = String(form.get('password') ?? '')
+    setAuthError('')
+    setAuthSubmitting(true)
+    try {
+      const response = authMode === 'signup'
+        ? await signUp(email, password, String(form.get('name') ?? '').trim())
+        : await signIn(email, password)
+      if (response.error) throw response.error
+      if (!response.data.session) {
+        setAuthError('Check your email to confirm your account, then sign in.')
+      }
+      // A signed-in session is handled by the auth-state listener above.
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Authentication failed. Please try again.')
+    } finally {
+      setAuthSubmitting(false)
+    }
   }
 
-  if (!signedIn) return <AuthScreen mode={authMode} onModeChange={setAuthMode} onSubmit={handleAuth} />
+  async function handleSignOut() {
+    const { error } = await signOut()
+    if (error) setToast(error.message)
+  }
+
+  if (authLoading) return <LoadingState />
+  if (!signedIn) return <AuthScreen mode={authMode} onModeChange={(mode) => { setAuthMode(mode); setAuthError('') }} onSubmit={handleAuth} error={authError} submitting={authSubmitting} />
 
   return <div className="app-shell">
     <aside className={`sidebar ${mobileMenu ? 'sidebar-open' : ''}`}>
@@ -144,7 +211,7 @@ function App() {
       </nav>
       <div className="sidebar-bottom">
         <div className="help-card"><span className="help-spark">✳</span><strong>Getting started</strong><p>Explore investing with zero risk.</p><button onClick={() => setToast('Everything here uses mock data. Simulated trades never reach a market.')}>Learn more <Icon name="arrow" size={14} /></button></div>
-        <button className="profile-button" onClick={() => setSignedIn(false)}><span className="avatar">{profile.nickname.slice(0, 1).toUpperCase()}</span><span className="profile-name"><b>{profile.nickname}</b><small>Demo account</small></span><Icon name="down" size={16} /></button>
+        <button className="profile-button" onClick={() => void handleSignOut()}><span className="avatar">{profile.nickname.slice(0, 1).toUpperCase()}</span><span className="profile-name"><b>{profile.nickname}</b><small>Sign out</small></span><Icon name="down" size={16} /></button>
       </div>
     </aside>
     {mobileMenu && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileMenu(false)} />}
@@ -166,8 +233,8 @@ function App() {
 
 function NavItem({ icon, label, active, onClick }: { icon: string; label: string; active: boolean; onClick: () => void }) { return <button className={`nav-item ${active ? 'active' : ''}`} onClick={onClick}><Icon name={icon} /><span>{label}</span>{label === 'History' && <span className="nav-count">{initialTrades.length}</span>}</button> }
 
-function AuthScreen({ mode, onModeChange, onSubmit }: { mode: 'signin' | 'signup'; onModeChange: (mode: 'signin' | 'signup') => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <div className="auth-page"><div className="auth-left"><a className="brand auth-brand" href="#"><span className="brand-mark">r<span>.</span></span><span>paper<span className="brand-light">trade</span></span></a><div className="auth-copy"><div className="eyebrow"><span></span> YOUR MONEY, YOUR MOVES</div><h1>Invest in your<br /><em>own future.</em></h1><p>A calm place to learn the market, build conviction, and practice investing — without the risk.</p><div className="auth-stats"><div><b>$0</b><span>real money at risk</span></div><div><b>100%</b><span>your pace, your rules</span></div></div></div><div className="auth-footer">Papertrade is a simulated investing experience.</div></div><div className="auth-right"><div className="auth-form-wrap"><div className="auth-mobile-brand"><span className="brand-mark">r<span>.</span></span> papertrade</div><div className="form-kicker">GET STARTED</div><h2>{mode === 'signin' ? 'Welcome back' : 'Create your account'}</h2><p className="form-subtitle">{mode === 'signin' ? 'Sign in to your paper trading account.' : 'Start practicing with your free demo account.'}</p><form className="auth-form" onSubmit={onSubmit}>{mode === 'signup' && <label>Your name<input name="name" placeholder="Alex Morgan" autoComplete="name" required /></label>}<label>Email address<input name="email" type="email" placeholder="you@example.com" autoComplete="email" required /></label><label>Password<input name="password" type="password" placeholder="At least 8 characters" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} minLength={8} required /></label><div className="auth-options"><label className="remember"><input type="checkbox" defaultChecked /> <span>Remember me</span></label>{mode === 'signin' && <button type="button" className="text-link" onClick={() => alert('Password reset is unavailable in demo mode.')}>Forgot password?</button>}</div><button className="button-primary auth-submit" type="submit">{mode === 'signin' ? 'Sign in' : 'Create account'} <Icon name="arrow" size={17} /></button></form><div className="auth-switch">{mode === 'signin' ? 'New to Papertrade?' : 'Already have an account?'} <button className="text-link" onClick={() => onModeChange(mode === 'signin' ? 'signup' : 'signin')}>{mode === 'signin' ? 'Create an account' : 'Sign in'}</button></div><div className="mock-note"><span>✳</span> Mock authentication · No account is created</div></div><div className="auth-legal">By continuing, you agree to our <a href="#terms">Terms</a> and <a href="#privacy">Privacy Policy</a>.</div></div></div>
+function AuthScreen({ mode, onModeChange, onSubmit, error, submitting }: { mode: 'signin' | 'signup'; onModeChange: (mode: 'signin' | 'signup') => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; error: string; submitting: boolean }) {
+  return <div className="auth-page"><div className="auth-left"><a className="brand auth-brand" href="#"><span className="brand-mark">r<span>.</span></span><span>paper<span className="brand-light">trade</span></span></a><div className="auth-copy"><div className="eyebrow"><span></span> YOUR MONEY, YOUR MOVES</div><h1>Invest in your<br /><em>own future.</em></h1><p>A calm place to learn the market, build conviction, and practice investing — without the risk.</p><div className="auth-stats"><div><b>$0</b><span>real money at risk</span></div><div><b>100%</b><span>your pace, your rules</span></div></div></div><div className="auth-footer">Papertrade is a simulated investing experience.</div></div><div className="auth-right"><div className="auth-form-wrap"><div className="auth-mobile-brand"><span className="brand-mark">r<span>.</span></span> papertrade</div><div className="form-kicker">GET STARTED</div><h2>{mode === 'signin' ? 'Welcome back' : 'Create your account'}</h2><p className="form-subtitle">{mode === 'signin' ? 'Sign in to your paper trading account.' : 'Start practicing with your free demo account.'}</p><form className="auth-form" onSubmit={onSubmit}>{error && <div className="inline-error" role="alert">{error}</div>}{mode === 'signup' && <label>Your name<input name="name" placeholder="Alex Morgan" autoComplete="name" required /></label>}<label>Email address<input name="email" type="email" placeholder="you@example.com" autoComplete="email" required /></label><label>Password<input name="password" type="password" placeholder="At least 8 characters" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} minLength={8} required /></label><div className="auth-options"><label className="remember"><input type="checkbox" defaultChecked /> <span>Remember me</span></label>{mode === 'signin' && <button type="button" className="text-link" onClick={() => alert('Password reset will be added after the MVP.')}>Forgot password?</button>}</div><button className="button-primary auth-submit" type="submit" disabled={submitting}>{submitting ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'} <Icon name="arrow" size={17} /></button></form><div className="auth-switch">{mode === 'signin' ? 'New to Papertrade?' : 'Already have an account?'} <button className="text-link" onClick={() => onModeChange(mode === 'signin' ? 'signup' : 'signin')}>{mode === 'signin' ? 'Create an account' : 'Sign in'}</button></div><div className="mock-note"><span>✳</span> Authentication powered by Supabase</div></div><div className="auth-legal">By continuing, you agree to our <a href="#terms">Terms</a> and <a href="#privacy">Privacy Policy</a>.</div></div></div>
 }
 
 function PortfolioScreen({ profile, positions, watchlist, snapshot, totals, onTrade, onWatchlistChange }: { profile: Profile; positions: Position[]; watchlist: WatchlistItem[]; snapshot: PortfolioSnapshot | null; totals: { positionsValue: number; totalValue: number; profitLoss: number }; onTrade: () => void; onWatchlistChange: (items: WatchlistItem[]) => void }) {
@@ -194,7 +261,7 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<void
 function HistoryScreen({ trades }: { trades: Trade[] }) { const [filter, setFilter] = useState<'ALL' | TradeSide>('ALL'); const [query, setQuery] = useState(''); const visible = trades.filter((trade) => (filter === 'ALL' || trade.side === filter) && trade.symbol.toLowerCase().includes(query.toLowerCase())); return <section className="screen"><div className="screen-heading"><div><div className="eyebrow">YOUR ACTIVITY</div><h1>Trade history</h1><p>Review your simulated orders and activity.</p></div><span className="simulated-badge history-badge">MOCK DATA</span></div><div className="panel history-panel"><div className="history-tools"><div className="history-tabs"><button className={filter === 'ALL' ? 'selected' : ''} onClick={() => setFilter('ALL')}>All activity</button><button className={filter === 'BUY' ? 'selected' : ''} onClick={() => setFilter('BUY')}>Buys</button><button className={filter === 'SELL' ? 'selected' : ''} onClick={() => setFilter('SELL')}>Sells</button></div><label className="history-search"><Icon name="search" size={17} /><input aria-label="Search symbols" placeholder="Search symbol" value={query} onChange={(event) => setQuery(event.target.value)} /></label></div>{visible.length ? <div className="table-scroll"><table className="history-table"><thead><tr><th>ASSET</th><th>TYPE</th><th>QUANTITY</th><th>PRICE / SHARE</th><th>TOTAL VALUE</th><th>DATE & TIME</th><th>STATUS</th></tr></thead><tbody>{visible.map((trade) => <tr key={trade.id}><td><div className="asset-cell"><AssetIcon symbol={trade.symbol} /><span><b>{trade.symbol}</b><small>{companyName(trade.symbol)}</small></span></div></td><td><span className={`trade-type ${trade.side.toLowerCase()}`}>{trade.side}</span></td><td>{trade.quantity} shares</td><td>{money(trade.price)}</td><td className="cell-strong">{money(trade.price * trade.quantity)}</td><td>{dateLabel(trade.executedAt)}</td><td><span className="status-complete"><i></i> Simulated</span></td></tr>)}</tbody></table></div> : <EmptyState title={trades.length ? 'No matching activity' : 'No trades yet'} body={trades.length ? 'Try another symbol or activity filter.' : 'Your simulated trades will appear here.'} />}{visible.length > 0 && <div className="history-foot"><span>Showing {visible.length} of {trades.length} transactions</span><span>Demo activity only</span></div>}</div><div className="demo-footnote"><span>ⓘ</span> This history contains simulated orders for demonstration purposes.</div></section> }
 
 function EmptyState({ title, body, action, onAction }: { title: string; body: string; action?: string; onAction?: () => void }) { return <div className="empty-state"><span className="empty-icon"><Icon name="search" size={22} /></span><b>{title}</b><p>{body}</p>{action && onAction && <button className="subtle-link" onClick={onAction}>{action} <Icon name="arrow" size={14} /></button>}</div> }
-function LoadingState() { return <div className="loading-state"><span className="spinner"></span><b>Loading your demo workspace</b><p>Preparing mock portfolio data…</p></div> }
+function LoadingState() { return <div className="loading-state"><span className="spinner"></span><b>Loading your account</b><p>Checking your Supabase session…</p></div> }
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) { return <div className="error-state"><span className="error-icon">!</span><h2>Something went wrong</h2><p>{message}</p><button className="button-primary" onClick={onRetry}>Try again</button></div> }
 
 export default App
