@@ -46,6 +46,7 @@ export interface Position {
   symbol: string
   quantity: number
   averageCost: number // Weighted-average USD cost per share.
+  lastPrice?: number // Last observed server-side valuation until live quotes are connected.
 }
 
 export interface WatchlistItem {
