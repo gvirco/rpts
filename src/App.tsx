@@ -146,6 +146,7 @@ function App() {
           if (!active || request !== generation) return
           if (!userProfile) throw new Error('Account profile not found in Supabase.')
           setProfile(userProfile)
+          setLoadError('')
           setAuthError('')
           setLoadState('ready')
           setSignedIn(true)
