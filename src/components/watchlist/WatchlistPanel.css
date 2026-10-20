@@ -10,3 +10,7 @@
 .watchlist-add-button:disabled{opacity:.55;cursor:wait}
 .watchlist-error{color:#b94e4e;margin:6px 16px 0;font-size:10px;line-height:1.4}
 .watchlist-hint{margin:9px 16px 13px;font-size:9px;color:#9aa49e}
+
+.watchlist-quote{display:block;margin-top:3px;color:#277a53;font-weight:700;white-space:nowrap}
+.watchlist-quote span{color:#819189;font-size:9px;font-weight:400}
+.watchlist-quote-error{color:#b94e4e;cursor:help}
