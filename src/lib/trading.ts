@@ -7,6 +7,9 @@ export interface PaperTradeResult {
   side: TradeOrder['side']
   quantity: number
   executionPrice: number
+  /** Trading date of the daily close; not an intraday execution timestamp. */
+  quoteAsOf?: string
+  priceSource?: 'alpha-vantage-daily-close' | 'test-only'
   cashBalance: number
   totalValue: number
   profitLoss: number
