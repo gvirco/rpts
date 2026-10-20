@@ -12,6 +12,10 @@ Vibe-coding course final project. A paper trading app for three-person team, bui
 - Transaction data persisted and isolated by user
 - Public deployment on Vercel
 
+## Live demo
+- Public Vercel deployment: https://rpts-git-main-gvirco.vercel.app/
+- Linked to GitHub `main` for continuous deployment. The current login is mock-based; live Supabase integration is tracked in Issue #8.
+
 ## Stack
 React + TypeScript + Vite · Supabase (Auth + Postgres + RLS) · Recharts · server-side market-data endpoint · Vercel
 

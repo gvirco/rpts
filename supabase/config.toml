@@ -1,3 +1,8 @@
+# The Edge gateway's legacy-secret JWT verifier does not support modern
+# asymmetric Supabase session tokens. The @supabase/server wrapper in
+# execute-trade independently requires and validates an authenticated user JWT.
+[functions.execute-trade]
+verify_jwt = false
 
 [functions.market-data]
 enabled = true
