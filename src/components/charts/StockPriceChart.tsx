@@ -1,15 +1,16 @@
+import type { ReactNode } from 'react'
 import type { PricePoint } from '../../types'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ChartFrame } from './ChartFrame'
 import { formatChartDate, formatUsd } from './formatters'
 
-export function StockPriceChart({ data, symbol }: { data: PricePoint[]; symbol: string }) {
+export function StockPriceChart({ data, symbol, headerAction }: { data: PricePoint[]; symbol: string; headerAction?: ReactNode }) {
   // The provider returns a trading *date*, not an intraday market timestamp.
   const lastDay = data.at(-1)?.timestamp
   const tradingDate = lastDay
     ? new Date(lastDay).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
     : null
-  return <ChartFrame title={`${symbol} price`} subtitle={`Daily closing prices · USD per share${tradingDate ? ` · Through ${tradingDate}` : ''}`} empty={data.length === 0}>
+  return <ChartFrame title={`${symbol} price`} subtitle={`Daily closing prices · USD per share${tradingDate ? ` · Through ${tradingDate}` : ''}`} empty={data.length === 0} headerAction={headerAction}>
     <div className="chart-plot"><ResponsiveContainer width="100%" height="100%"><LineChart data={data} margin={{ top: 12, right: 14, bottom: 2, left: 0 }}>
       <CartesianGrid stroke="#edf1ed" vertical={false} />
       <XAxis dataKey="timestamp" tickFormatter={(value: string) => formatChartDate(value)} tickLine={false} axisLine={false} minTickGap={26} />
