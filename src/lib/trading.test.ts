@@ -30,7 +30,8 @@ describe('secure paper trading client', () => {
       quantity: 1,
     })
 
-    expect(invoke).toHaveBeenCalledExactlyOnceWith('execute-trade', {
+    expect(invoke).toHaveBeenCalledTimes(1)
+    expect(invoke).toHaveBeenCalledWith('execute-trade', {
       body: { symbol: 'AAPL', side: 'BUY', quantity: 1 },
     })
     expect(result).toEqual(savedTrade)
