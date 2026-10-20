@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Quote, WatchlistItem } from '../../types'
 import { getCachedQuote } from '../../lib/quoteCache'
+import { isValidStockSymbol } from '../../lib/stockSymbols'
 import './WatchlistPanel.css'
 
 interface WatchlistPanelProps {
@@ -18,7 +19,7 @@ export function WatchlistPanel({ items, onAdd, onRemove }: WatchlistPanelProps) 
   async function handleAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const normalized = symbol.trim().toUpperCase()
-    if (!/^[A-Z][A-Z0-9.-]{0,14}$/.test(normalized)) {
+    if (!isValidStockSymbol(normalized)) {
       setError('Enter a valid stock symbol such as AAPL or MSFT.')
       return
     }
@@ -80,7 +81,7 @@ export function WatchlistPanel({ items, onAdd, onRemove }: WatchlistPanelProps) 
         value={symbol}
         onChange={(event) => { setSymbol(event.target.value.toUpperCase()); setError('') }}
         placeholder="e.g. AAPL"
-        maxLength={15}
+        maxLength={10}
         autoComplete="off"
         disabled={saving}
       />
