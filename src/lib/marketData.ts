@@ -1,5 +1,6 @@
 import type { PricePoint, Quote } from '../types'
 import { supabase } from './supabase'
+import { isValidStockSymbol } from './stockSymbols'
 
 type MarketDataType = 'quote' | 'history'
 
@@ -16,7 +17,7 @@ function providerMessage(error: unknown): string | null {
 
 async function fetchMarketData(symbol: string, type: MarketDataType): Promise<unknown> {
   const normalized = symbol.trim().toUpperCase()
-  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(normalized)) {
+  if (!isValidStockSymbol(normalized)) {
     throw new Error('Enter a valid stock symbol.')
   }
 
