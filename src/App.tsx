@@ -275,7 +275,10 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
       const executed = await onTrade({ symbol: normalizedSymbol, side, quantity: shares })
       setSuccess(
         'Saved ' + side + ' ' + shares + ' ' + normalizedSymbol +
-        ' at ' + money(executed.executionPrice) + ' per share (daily-close pricing).'
+        ' at ' + money(executed.executionPrice) + ' per share.' +
+        (executed.quoteAsOf
+          ? ' Daily close dated ' + new Date(executed.quoteAsOf).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) + '.'
+          : ' Server-priced paper trade.')
       )
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not execute paper trade.')
