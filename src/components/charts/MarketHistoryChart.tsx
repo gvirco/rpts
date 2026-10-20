@@ -5,7 +5,7 @@ import { ChartFrame } from './ChartFrame'
 import { StockPriceChart } from './StockPriceChart'
 
 type LoadState = 'loading' | 'ready' | 'error'
-const chartSymbols = ['AAPL', 'MSFT', 'NVDA'] as const
+const chartSymbols = ['AAPL', 'MSFT', 'NVDA', 'TSLA'] as const
 
 export function MarketHistoryChart({ symbol }: { symbol: string }) {
   const [selectedSymbol, setSelectedSymbol] = useState(symbol)
