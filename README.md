@@ -40,6 +40,29 @@ Import common frontend/backend DTO types from `src/types/index.ts`: `Profile`, `
 - `TradeOrder` contains only `symbol`, `side`, `quantity`; **the server obtains and records the execution price**, validates funds/holdings and updates the ledger transactionally.
 - All chart components take real data in these shapes; mocks must match them exactly.
 
+## Market data Edge Function
+
+The `market-data` Supabase Edge Function calls Alpha Vantage from the server. Add your Alpha Vantage key as an Edge Function secret; do not put it in React code or a `VITE_` variable:
+
+```sh
+supabase secrets set ALPHA_VANTAGE_API_KEY=your_alpha_vantage_key
+```
+
+For local development, create `supabase/functions/.env` (already ignored by Git) with `ALPHA_VANTAGE_API_KEY=your_alpha_vantage_key`, then start the local stack with `supabase start` or serve the function with `supabase functions serve market-data --env-file supabase/functions/.env`. Keep the key out of `.env.local`, which is intended for Vite client settings. The committed `.env.example` names the required secret but contains no key.
+
+The function preserves the existing `withSupabase` publishable/secret authentication pattern. Send a POST request with JSON `symbol` and `type` fields:
+
+```sh
+curl --request POST 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/market-data' \
+  --header 'Content-Type: application/json' \
+  --header 'apiKey: YOUR_SUPABASE_PUBLISHABLE_KEY' \
+  --data '{"symbol":"AAPL","type":"quote"}'
+```
+
+Use `"type":"history"` for daily history. Symbols are normalized to uppercase; `AAPL` and `MSFT` are supported along with other syntactically valid symbols available from Alpha Vantage. A quote response matches `Quote`; history is an ascending `PricePoint[]`. Alpha Vantage provides a latest trading **date** for `GLOBAL_QUOTE` and date-granular closes for `TIME_SERIES_DAILY`, not an intraday execution timestamp or real-time feed. The endpoint represents those dates as UTC midnight ISO timestamps to fit the shared contracts. Daily history uses the provider's default compact response (up to 100 trading days).
+
+The function caches quotes for 60 seconds and daily history for 6 hours in each warm Edge Function instance. Provider free-tier limits can still apply across instances. Invalid input, missing configuration, unavailable symbols, provider rate limits, and provider failures return JSON errors with an HTTP status and error code.
+
 ## How the three-person team works
 1. Share this public repository URL with teammates. Everyone can clone it; a teammate without write access can **fork** it and propose a PR.
 2. Work on one GitHub Issue at a time, on a separate `feature/<issue-number>-short-name` branch. Do not directly commit feature work to `main`.
