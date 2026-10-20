@@ -187,15 +187,15 @@ function App() {
         <NavItem icon="history" label="History" count={trades.length} active={page === 'history'} onClick={() => { setPage('history'); setMobileMenu(false) }} />
       </nav>
       <div className="sidebar-bottom">
-        <div className="help-card"><span className="help-spark">✳</span><strong>Getting started</strong><p>Explore investing with zero risk.</p><button onClick={() => setToast('Everything here uses mock data. Simulated trades never reach a market.')}>Learn more <Icon name="arrow" size={14} /></button></div>
+        <div className="help-card"><span className="help-spark">✳</span><strong>Getting started</strong><p>Explore investing with zero risk.</p><button onClick={() => setToast('Paper trades use historical daily market quotes; no real shares are bought or sold.')}>Learn more <Icon name="arrow" size={14} /></button></div>
         <button className="profile-button" onClick={() => void handleSignOut()}><span className="avatar">{profile.nickname.slice(0, 1).toUpperCase()}</span><span className="profile-name"><b>{profile.nickname}</b><small>Sign out</small></span><Icon name="down" size={16} /></button>
       </div>
     </aside>
     {mobileMenu && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileMenu(false)} />}
     <main className="main-area">
-      <header className="topbar"><button className="menu-toggle" aria-label="Open navigation" onClick={() => setMobileMenu(true)}><span></span><span></span></button><div className="breadcrumb">Workspace <span>/</span> <b>{page[0].toUpperCase() + page.slice(1)}</b></div><div className="topbar-right"><span className="market-status">Demo market data</span><button className="icon-button" aria-label="Notifications" onClick={() => setToast('You’re all caught up.')}><Icon name="bell" /></button><span className="top-avatar">{profile.nickname.slice(0, 1).toUpperCase()}</span></div></header>
+      <header className="topbar"><button className="menu-toggle" aria-label="Open navigation" onClick={() => setMobileMenu(true)}><span></span><span></span></button><div className="breadcrumb">Workspace <span>/</span> <b>{page[0].toUpperCase() + page.slice(1)}</b></div><div className="topbar-right"><span className="market-status">Daily market data</span><button className="icon-button" aria-label="Notifications" onClick={() => setToast('You’re all caught up.')}><Icon name="bell" /></button><span className="top-avatar">{profile.nickname.slice(0, 1).toUpperCase()}</span></div></header>
       <div className="content-wrap">
-        <div className="demo-banner"><span className="demo-dot">i</span><span><b>Paper trading</b> — Simulated orders are saved in Supabase using server test prices. Stock price history uses latest available daily market data; portfolio valuations reflect last recorded snapshots. No real money is traded.</span><button aria-label="Dismiss demo message" onClick={(event) => event.currentTarget.parentElement?.remove()}><Icon name="close" size={15} /></button></div>
+        <div className="demo-banner"><span className="demo-dot">i</span><span><b>Paper trading</b> — Orders use the latest available daily closing prices, determined by the server. Holdings and portfolio snapshots reflect last recorded valuations. No real money is traded.</span><button aria-label="Dismiss demo message" onClick={(event) => event.currentTarget.parentElement?.remove()}><Icon name="close" size={15} /></button></div>
         {loadState === 'loading' ? <LoadingState /> : loadState === 'error' ? <ErrorState message={loadError} onRetry={() => { setSignedIn(false); window.setTimeout(() => setSignedIn(true), 10) }} /> : <>
           {page === 'portfolio' && <PortfolioScreen profile={profile} positions={positions} watchlist={watchlist} snapshot={snapshot} portfolioSnapshots={portfolioSnapshots} totals={totals} onTrade={() => setPage('trade')} onAddWatchlist={handleAddWatchlist} onRemoveWatchlist={handleRemoveWatchlist} />}
           {page === 'trade' && <TradeScreen onTrade={handleTrade} />}
@@ -264,7 +264,7 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
 
     const agreed = window.confirm(
       'Execute simulated ' + side + ' order for ' + shares + ' ' + normalizedSymbol +
-      '? The backend will determine the price using temporary test quotes.'
+      '? The server will execute using the latest available daily closing price, not a live market price.'
     )
     if (!agreed) return
 
@@ -275,7 +275,7 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
       const executed = await onTrade({ symbol: normalizedSymbol, side, quantity: shares })
       setSuccess(
         'Saved ' + side + ' ' + shares + ' ' + normalizedSymbol +
-        ' at ' + money(executed.executionPrice) + ' per share.'
+        ' at ' + money(executed.executionPrice) + ' per share (daily-close pricing).'
       )
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not execute paper trade.')
@@ -285,7 +285,7 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
   }
 
   return <section className="screen">
-    <div className="screen-heading"><div><div className="eyebrow">PAPER TRADING</div><h1>Make a trade</h1><p>Trade using server-controlled test prices. No real money involved.</p></div></div>
+    <div className="screen-heading"><div><div className="eyebrow">PAPER TRADING</div><h1>Make a trade</h1><p>Simulated trades use latest available daily closing prices, not live market execution prices.</p></div></div>
     <div className="trade-layout">
       <div className="panel trade-panel">
         <div className="panel-heading"><div><h2>Order ticket</h2><p>Saved to your Supabase paper portfolio</p></div><span className="simulated-badge">SIMULATED</span></div>
@@ -296,7 +296,7 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
             <input id="trade-symbol" value={symbol} onChange={(event) => selectSymbol(event.target.value)} placeholder="AAPL" autoComplete="off" />
             <button type="button" className="clear-input" aria-label="Clear symbol" onClick={() => selectSymbol('')}><Icon name="close" size={15} /></button>
           </div>
-          {isSupportedSymbol && <div className="quote-preview"><AssetIcon symbol={normalizedSymbol} /><div><b>{normalizedSymbol}</b><small>{companyName(normalizedSymbol)}</small></div><div className="quote-current"><b>Server-priced</b><small>Temporary test quote</small></div></div>}
+          {isSupportedSymbol && <div className="quote-preview"><AssetIcon symbol={normalizedSymbol} /><div><b>{normalizedSymbol}</b><small>{companyName(normalizedSymbol)}</small></div><div className="quote-current"><b>Server-priced</b><small>Latest daily close</small></div></div>}
           <label className="field-label">Order type</label>
           <div className="side-toggle">
             <button className={side === 'BUY' ? 'selected buy' : ''} type="button" onClick={() => { setSide('BUY'); setError(''); setSuccess('') }}>Buy</button>
@@ -309,8 +309,8 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
           </div>
           <div className="order-summary">
             <div><span>Execution price</span><b>Determined by server</b></div>
-            <div><span>Estimated total</span><b>Unavailable in test mode</b></div>
-            <small>Test quotes are set by the backend (Issue #7). Real market quotes are being added in Issue #5.</small>
+            <div><span>Estimated total</span><b>Confirmed at execution</b></div>
+            <small>Price is determined and validated by the server from the latest available daily close. No trade is placed if a quote is unavailable.</small>
           </div>
           {error && <div className="inline-error" role="alert">{error}</div>}
           {success && <div className="success-message" role="status"><span>✓</span>{success}</div>}
@@ -321,10 +321,10 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
       </div>
       <div className="trade-aside">
         <div className="panel market-panel">
-          <div className="panel-heading"><div><h2>Test symbols</h2><p>Symbols supported by the trading backend</p></div></div>
+          <div className="panel-heading"><div><h2>Popular symbols</h2><p>Simulated trading with daily closing prices</p></div></div>
           <div className="popular-list">{testSymbols.map((item) =>
             <button className="popular-row" key={item} onClick={() => selectSymbol(item)}>
-              <AssetIcon symbol={item} /><span><b>{item}</b><small>{companyName(item)}</small></span><strong>Test mode</strong>
+              <AssetIcon symbol={item} /><span><b>{item}</b><small>{companyName(item)}</small></span><strong>Paper trade</strong>
             </button>
           )}</div>
           <div className="market-footnote">Prices are not previewed. The execution confirmation shows the price actually recorded by the server.</div>
