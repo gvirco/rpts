@@ -8,7 +8,7 @@ import { addWatchlistSymbol, removeWatchlistSymbol } from './lib/watchlist'
 import { WatchlistPanel } from './components/watchlist/WatchlistPanel'
 import { executePaperTrade } from './lib/trading'
 import type { PaperTradeResult } from './lib/trading'
-import { StockPriceChart } from './components/charts/StockPriceChart'
+import { MarketHistoryChart } from './components/charts/MarketHistoryChart'
 import { PortfolioValueChart } from './components/charts/PortfolioValueChart'
 import { PortfolioProfitLossChart } from './components/charts/PortfolioProfitLossChart'
 import './App.css'
@@ -17,14 +17,6 @@ type Page = 'portfolio' | 'trade' | 'history'
 type LoadState = 'loading' | 'ready' | 'error'
 
 const testSymbols = ['AAPL', 'MSFT', 'NVDA'] as const
-const stockPriceHistory = [
-  { timestamp: '2026-10-13T14:30:00Z', price: 228.42 },
-  { timestamp: '2026-10-14T14:30:00Z', price: 231.18 },
-  { timestamp: '2026-10-15T14:30:00Z', price: 233.04 },
-  { timestamp: '2026-10-16T14:30:00Z', price: 230.76 },
-  { timestamp: '2026-10-17T14:30:00Z', price: 235.21 },
-  { timestamp: '2026-10-18T14:30:00Z', price: 237.49 },
-]
 const initialProfile: Profile = { userId: 'demo-user', nickname: 'Alex Morgan', startingBalance: 10_000, cashBalance: 4_713.5 }
 function money(value: number) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value) }
 function dateLabel(value: string) { return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value)) }
@@ -203,7 +195,7 @@ function App() {
     <main className="main-area">
       <header className="topbar"><button className="menu-toggle" aria-label="Open navigation" onClick={() => setMobileMenu(true)}><span></span><span></span></button><div className="breadcrumb">Workspace <span>/</span> <b>{page[0].toUpperCase() + page.slice(1)}</b></div><div className="topbar-right"><span className="market-status">Demo market data</span><button className="icon-button" aria-label="Notifications" onClick={() => setToast('You’re all caught up.')}><Icon name="bell" /></button><span className="top-avatar">{profile.nickname.slice(0, 1).toUpperCase()}</span></div></header>
       <div className="content-wrap">
-        <div className="demo-banner"><span className="demo-dot">i</span><span><b>Paper trading</b> — Simulated orders are saved in Supabase using server test prices. Market charts remain mock data. No real money is traded.</span><button aria-label="Dismiss demo message" onClick={(event) => event.currentTarget.parentElement?.remove()}><Icon name="close" size={15} /></button></div>
+        <div className="demo-banner"><span className="demo-dot">i</span><span><b>Paper trading</b> — Simulated orders are saved in Supabase using server test prices. Stock price history uses latest available daily market data; portfolio valuations reflect last recorded snapshots. No real money is traded.</span><button aria-label="Dismiss demo message" onClick={(event) => event.currentTarget.parentElement?.remove()}><Icon name="close" size={15} /></button></div>
         {loadState === 'loading' ? <LoadingState /> : loadState === 'error' ? <ErrorState message={loadError} onRetry={() => { setSignedIn(false); window.setTimeout(() => setSignedIn(true), 10) }} /> : <>
           {page === 'portfolio' && <PortfolioScreen profile={profile} positions={positions} watchlist={watchlist} snapshot={snapshot} portfolioSnapshots={portfolioSnapshots} totals={totals} onTrade={() => setPage('trade')} onAddWatchlist={handleAddWatchlist} onRemoveWatchlist={handleRemoveWatchlist} />}
           {page === 'trade' && <TradeScreen onTrade={handleTrade} />}
@@ -236,7 +228,7 @@ function PortfolioScreen({ profile, positions, watchlist, snapshot, portfolioSna
     <div className="metrics-grid"><MetricCard label="Total portfolio value" value={money(totals.totalValue)} caption="Last recorded valuation" icon="grid" /><MetricCard label="Total profit / loss" value={`${totals.profitLoss >= 0 ? '+' : ''}${money(totals.profitLoss)}`} caption="all time" positive={totals.profitLoss >= 0} icon="trade" /><MetricCard label="Cash available" value={money(profile.cashBalance)} caption="Ready to invest" icon="history" /><MetricCard label="Buying power" value={money(profile.cashBalance)} caption="Simulated account" icon="star" /></div>
     <div className="portfolio-grid"><div className="panel holdings-panel"><div className="panel-heading"><div><h2>Your holdings</h2><p>Stocks and shares in your portfolio</p></div><button className="subtle-link" onClick={onTrade}>Trade <Icon name="arrow" size={14} /></button></div>{positions.length ? <div className="table-scroll"><table><thead><tr><th>ASSET</th><th>SHARES</th><th>AVG. COST</th><th>PRICE</th><th>MARKET VALUE</th><th>RETURN</th></tr></thead><tbody>{positions.map((item) => { const current = item.lastPrice ?? item.averageCost; const pnl = (current - item.averageCost) * item.quantity; const change = (current - item.averageCost) / item.averageCost * 100; return <tr key={item.symbol}><td><div className="asset-cell"><AssetIcon symbol={item.symbol} /><span><b>{item.symbol}</b><small>{companyName(item.symbol)}</small></span></div></td><td>{item.quantity}</td><td>{money(item.averageCost)}</td><td>{money(current)}</td><td className="cell-strong">{money(current * item.quantity)}</td><td><span className={`return-pill ${pnl >= 0 ? 'positive' : 'negative'}`}>{pnl >= 0 ? '+' : ''}{change.toFixed(2)}%</span><small className="return-money">{pnl >= 0 ? '+' : ''}{money(pnl)}</small></td></tr> })}</tbody></table></div> : <EmptyState title="No holdings yet" body="Your purchased assets will appear here." action="Explore trading" onAction={onTrade} />}<div className="holdings-foot"><span>{positions.length} assets</span><span>Portfolio value <b>{money(totals.positionsValue)}</b></span></div></div>
       <WatchlistPanel items={watchlist} onAdd={onAddWatchlist} onRemove={onRemoveWatchlist} /></div>
-    <div className="charts-grid"><StockPriceChart data={stockPriceHistory} symbol="AAPL" /><PortfolioValueChart data={portfolioSnapshots} /><PortfolioProfitLossChart data={portfolioSnapshots} /></div>
+    <div className="charts-grid"><MarketHistoryChart symbol="AAPL" /><PortfolioValueChart data={portfolioSnapshots} /><PortfolioProfitLossChart data={portfolioSnapshots} /></div>
     <div className="demo-footnote"><span>ⓘ</span> Last recorded portfolio snapshot: {snapshot ? dateLabel(snapshot.timestamp) : 'not available'}. Position prices are last observed, not live quotes.</div>
   </section>
 }
