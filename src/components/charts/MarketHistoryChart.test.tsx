@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
+import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -8,8 +9,8 @@ import { MarketHistoryChart } from './MarketHistoryChart'
 
 vi.mock('../../lib/marketData', () => ({ getDailyHistory: vi.fn() }))
 vi.mock('./StockPriceChart', () => ({
-  StockPriceChart: ({ symbol }: { symbol: string }) =>
-    <section aria-label={symbol + ' price chart'}>Historical chart for {symbol}</section>,
+  StockPriceChart: ({ symbol, headerAction }: { symbol: string; headerAction?: ReactNode }) =>
+    <section aria-label={symbol + ' price chart'}>{headerAction}<p>Historical chart for {symbol}</p></section>,
 }))
 
 const loadHistory = vi.mocked(getDailyHistory)
