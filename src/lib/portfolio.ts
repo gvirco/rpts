@@ -53,3 +53,19 @@ export async function getMyPortfolioData(): Promise<{
     })),
   }
 }
+
+/**
+ * Ask the authenticated backend to refresh stored holdings and snapshots.
+ * All stock prices and the user ID are controlled by the server.
+ * A recent snapshot may be reused to avoid daily market-data quota exhaustion.
+ */
+export async function refreshMyPortfolioValuation(): Promise<boolean> {
+  const { data, error } = await supabase.functions.invoke('refresh-portfolio', {
+    body: {},
+  })
+  if (error) throw new Error('Portfolio valuation refresh unavailable.')
+  if (!data || typeof data !== 'object' || typeof data.refreshed !== 'boolean') {
+    throw new Error('Portfolio valuation refresh returned an invalid response.')
+  }
+  return data.refreshed
+}
