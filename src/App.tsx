@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import type { PortfolioSnapshot, Position, Profile, Trade, TradeOrder, TradeSide, WatchlistItem } from './types'
+import type { PortfolioSnapshot, Position, Profile, Quote, Trade, TradeOrder, TradeSide, WatchlistItem } from './types'
 import { signIn, signUp, signOut, getMyProfile } from './lib/auth'
 import { supabase } from './lib/supabase'
 import { getMyPortfolioData } from './lib/portfolio'
 import { addWatchlistSymbol, removeWatchlistSymbol } from './lib/watchlist'
 import { WatchlistPanel } from './components/watchlist/WatchlistPanel'
 import { executePaperTrade } from './lib/trading'
+import { getCachedQuote } from './lib/quoteCache'
 import type { PaperTradeResult } from './lib/trading'
 import { MarketHistoryChart } from './components/charts/MarketHistoryChart'
 import { PortfolioValueChart } from './components/charts/PortfolioValueChart'
@@ -243,16 +244,35 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState('')
+  const [quoteState, setQuoteState] = useState<{ status: 'loading' | 'error' | 'ready'; quote?: Quote }>({ status: 'loading' })
 
   const normalizedSymbol = symbol.trim().toUpperCase()
   const isSupportedSymbol = testSymbols.some((item) => item === normalizedSymbol)
   const shares = Number(quantity)
   const isValidQuantity = Number.isSafeInteger(shares) && shares > 0 && shares <= 10000
 
+  useEffect(() => {
+    let active = true
+    if (!isSupportedSymbol) return
+    getCachedQuote(normalizedSymbol).then((quote) => {
+      if (active) setQuoteState({ status: 'ready', quote })
+    }).catch(() => {
+      if (active) setQuoteState({ status: 'error' })
+    })
+    return () => { active = false }
+  }, [normalizedSymbol, isSupportedSymbol])
+
+  const previewQuote = quoteState.status === 'ready' && quoteState.quote?.symbol === normalizedSymbol
+    ? quoteState.quote : undefined
+  const previewDay = previewQuote ? new Date(previewQuote.asOf).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  }) : null
+
   function selectSymbol(value: string) {
     setSymbol(value.toUpperCase())
     setError('')
     setSuccess('')
+    setQuoteState({ status: 'loading' })
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -299,7 +319,7 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
             <input id="trade-symbol" value={symbol} onChange={(event) => selectSymbol(event.target.value)} placeholder="AAPL" autoComplete="off" />
             <button type="button" className="clear-input" aria-label="Clear symbol" onClick={() => selectSymbol('')}><Icon name="close" size={15} /></button>
           </div>
-          {isSupportedSymbol && <div className="quote-preview"><AssetIcon symbol={normalizedSymbol} /><div><b>{normalizedSymbol}</b><small>{companyName(normalizedSymbol)}</small></div><div className="quote-current"><b>Server-priced</b><small>Latest daily close</small></div></div>}
+          {isSupportedSymbol && <div className="quote-preview"><AssetIcon symbol={normalizedSymbol} /><div><b>{normalizedSymbol}</b><small>{companyName(normalizedSymbol)}</small></div><div className="quote-current"><b>{previewQuote ? money(previewQuote.price) : quoteState.status === 'error' ? 'Unavailable' : 'Loading…'}</b><small>{previewDay ? previewDay + ' close' : 'Latest daily close'}</small></div></div>}
           <label className="field-label">Order type</label>
           <div className="side-toggle">
             <button className={side === 'BUY' ? 'selected buy' : ''} type="button" onClick={() => { setSide('BUY'); setError(''); setSuccess('') }}>Buy</button>
@@ -311,9 +331,9 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
             <span>SHARES</span>
           </div>
           <div className="order-summary">
-            <div><span>Execution price</span><b>Determined by server</b></div>
-            <div><span>Estimated total</span><b>Confirmed at execution</b></div>
-            <small>Price is determined and validated by the server from the latest available daily close. No trade is placed if a quote is unavailable.</small>
+            <div><span>Latest daily close</span><b>{previewQuote ? money(previewQuote.price) : 'Unavailable'}</b></div>
+            <div><span>Estimated total</span><b>{previewQuote && isValidQuantity ? money(previewQuote.price * shares) : 'Unavailable'}</b></div>
+            <small>Estimate based on {previewDay ?? 'the latest available'} daily close. The server independently determines the final execution price; an unavailable quote blocks execution.</small>
           </div>
           {error && <div className="inline-error" role="alert">{error}</div>}
           {success && <div className="success-message" role="status"><span>✓</span>{success}</div>}
@@ -330,7 +350,7 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
               <AssetIcon symbol={item} /><span><b>{item}</b><small>{companyName(item)}</small></span><strong>Paper trade</strong>
             </button>
           )}</div>
-          <div className="market-footnote">Prices are not previewed. The execution confirmation shows the price actually recorded by the server.</div>
+          <div className="market-footnote">Daily closing prices may lag the current US trading session. The server confirms the recorded execution price.</div>
         </div>
         <div className="info-card"><span className="info-icon">✳</span><div><b>Practice makes progress</b><p>Orders are persisted in your simulated portfolio but never sent to an exchange.</p></div></div>
       </div>
