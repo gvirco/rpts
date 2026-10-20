@@ -42,7 +42,7 @@ async function getExecutionQuote(
       body: { symbol, type: 'quote' },
     })
     if (error) {
-      console.error('Server-side market quote request failed', error)
+      console.error('Server-side market quote request failed:', error instanceof Error ? error.message : 'unknown error')
       return { error: 'Market quote unavailable. No trade was executed. Please try again later.' }
     }
     if (!isDailyQuote(data, symbol)) {
@@ -63,7 +63,7 @@ async function getExecutionQuote(
 
     return { quote: data, executionPrice }
   } catch (error) {
-    console.error('Server-side market quote request failed', error)
+    console.error('Server-side market quote request failed:', error instanceof Error ? error.message : 'unknown error')
     return { error: 'Market quote unavailable. No trade was executed. Please try again later.' }
   }
 }
