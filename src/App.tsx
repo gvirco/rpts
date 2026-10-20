@@ -8,6 +8,7 @@ import { addWatchlistSymbol, removeWatchlistSymbol } from './lib/watchlist'
 import { WatchlistPanel } from './components/watchlist/WatchlistPanel'
 import { executePaperTrade } from './lib/trading'
 import { getCachedQuote } from './lib/quoteCache'
+import { isValidStockSymbol } from './lib/stockSymbols'
 import type { PaperTradeResult } from './lib/trading'
 import { MarketHistoryChart } from './components/charts/MarketHistoryChart'
 import { PortfolioValueChart } from './components/charts/PortfolioValueChart'
@@ -17,7 +18,7 @@ import './App.css'
 type Page = 'portfolio' | 'trade' | 'history'
 type LoadState = 'loading' | 'ready' | 'error'
 
-const testSymbols = ['AAPL', 'MSFT', 'NVDA'] as const
+const popularSymbols = ['AAPL', 'MSFT', 'NVDA', 'TSLA'] as const
 const initialProfile: Profile = { userId: '', nickname: '', startingBalance: 0, cashBalance: 0 }
 function money(value: number) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value) }
 function dateLabel(value: string) { return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value)) }
@@ -262,19 +263,22 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
   const [quoteState, setQuoteState] = useState<{ status: 'loading' | 'error' | 'ready'; quote?: Quote }>({ status: 'loading' })
 
   const normalizedSymbol = symbol.trim().toUpperCase()
-  const isSupportedSymbol = testSymbols.some((item) => item === normalizedSymbol)
+  const isSupportedSymbol = isValidStockSymbol(normalizedSymbol)
   const shares = Number(quantity)
   const isValidQuantity = Number.isSafeInteger(shares) && shares > 0 && shares <= 10000
 
   useEffect(() => {
     let active = true
     if (!isSupportedSymbol) return
-    getCachedQuote(normalizedSymbol).then((quote) => {
-      if (active) setQuoteState({ status: 'ready', quote })
-    }).catch(() => {
-      if (active) setQuoteState({ status: 'error' })
-    })
-    return () => { active = false }
+    // Avoid exhausting the daily API quota while a user types TSLA, MSFT, etc.
+    const timer = window.setTimeout(() => {
+      void getCachedQuote(normalizedSymbol).then((quote) => {
+        if (active) setQuoteState({ status: 'ready', quote })
+      }).catch(() => {
+        if (active) setQuoteState({ status: 'error' })
+      })
+    }, 400)
+    return () => { active = false; window.clearTimeout(timer) }
   }, [normalizedSymbol, isSupportedSymbol])
 
   const previewQuote = quoteState.status === 'ready' && quoteState.quote?.symbol === normalizedSymbol
@@ -293,7 +297,7 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!isSupportedSymbol || !isValidQuantity) {
-      setError('Enter AAPL, MSFT or NVDA and a positive whole-share quantity (max 10,000).')
+      setError('Enter a valid stock ticker (up to 10 characters) and a positive whole-share quantity (max 10,000).')
       return
     }
 
@@ -328,10 +332,10 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
       <div className="panel trade-panel">
         <div className="panel-heading"><div><h2>Order ticket</h2><p>Saved to your Supabase paper portfolio</p></div><span className="simulated-badge">SIMULATED</span></div>
         <form className="trade-form" onSubmit={(event) => void submit(event)}>
-          <div className="form-label-row"><label htmlFor="trade-symbol">Stock symbol</label><span>AAPL, MSFT, NVDA</span></div>
+          <div className="form-label-row"><label htmlFor="trade-symbol">Stock symbol</label><span>e.g. AAPL, MSFT, TSLA</span></div>
           <div className="symbol-input-wrap">
             <Icon name="search" size={18} />
-            <input id="trade-symbol" value={symbol} onChange={(event) => selectSymbol(event.target.value)} placeholder="AAPL" autoComplete="off" />
+            <input id="trade-symbol" value={symbol} onChange={(event) => selectSymbol(event.target.value)} placeholder="AAPL" maxLength={10} autoComplete="off" />
             <button type="button" className="clear-input" aria-label="Clear symbol" onClick={() => selectSymbol('')}><Icon name="close" size={15} /></button>
           </div>
           {isSupportedSymbol && <div className="quote-preview"><AssetIcon symbol={normalizedSymbol} /><div><b>{normalizedSymbol}</b><small>{companyName(normalizedSymbol)}</small></div><div className="quote-current"><b>{previewQuote ? money(previewQuote.price) : quoteState.status === 'error' ? 'Unavailable' : 'Loading…'}</b><small>{previewDay ? previewDay + ' close' : 'Latest daily close'}</small></div></div>}
@@ -360,12 +364,12 @@ function TradeScreen({ onTrade }: { onTrade: (order: TradeOrder) => Promise<Pape
       <div className="trade-aside">
         <div className="panel market-panel">
           <div className="panel-heading"><div><h2>Popular symbols</h2><p>Simulated trading with daily closing prices</p></div></div>
-          <div className="popular-list">{testSymbols.map((item) =>
+          <div className="popular-list">{popularSymbols.map((item) =>
             <button className="popular-row" key={item} onClick={() => selectSymbol(item)}>
               <AssetIcon symbol={item} /><span><b>{item}</b><small>{companyName(item)}</small></span><strong>Paper trade</strong>
             </button>
           )}</div>
-          <div className="market-footnote">Daily closing prices may lag the current US trading session. The server confirms the recorded execution price.</div>
+          <div className="market-footnote">Enter any valid ticker supported by the market-data provider. Daily closes may lag the US session; the server confirms the execution price.</div>
         </div>
         <div className="info-card"><span className="info-icon">✳</span><div><b>Practice makes progress</b><p>Orders are persisted in your simulated portfolio but never sent to an exchange.</p></div></div>
       </div>
