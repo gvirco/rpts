@@ -1,7 +1,6 @@
 import type { WatchlistItem } from '../types'
 import { supabase } from './supabase'
-
-const SYMBOL_PATTERN = /^[A-Z][A-Z0-9.-]{0,14}$/
+import { isValidStockSymbol } from './stockSymbols'
 
 async function getAuthenticatedUserId(): Promise<string> {
   const { data: { user }, error } = await supabase.auth.getUser()
@@ -16,7 +15,7 @@ async function getAuthenticatedUserId(): Promise<string> {
  */
 export async function addWatchlistSymbol(symbol: string): Promise<WatchlistItem> {
   const normalizedSymbol = symbol.trim().toUpperCase()
-  if (!SYMBOL_PATTERN.test(normalizedSymbol)) {
+  if (!isValidStockSymbol(normalizedSymbol)) {
     throw new Error('Enter a valid stock symbol (letters, digits, dots or dashes).')
   }
 
