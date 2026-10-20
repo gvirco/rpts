@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import type { PortfolioSnapshot, Position, Profile, Quote, Trade, TradeOrder, TradeSide, WatchlistItem } from './types'
 import { signIn, signUp, signOut, getMyProfile } from './lib/auth'
 import { supabase } from './lib/supabase'
-import { getMyPortfolioData } from './lib/portfolio'
+import { getMyPortfolioData, refreshMyPortfolioValuation } from './lib/portfolio'
 import { addWatchlistSymbol, removeWatchlistSymbol } from './lib/watchlist'
 import { WatchlistPanel } from './components/watchlist/WatchlistPanel'
 import { executePaperTrade } from './lib/trading'
@@ -18,7 +18,7 @@ type Page = 'portfolio' | 'trade' | 'history'
 type LoadState = 'loading' | 'ready' | 'error'
 
 const testSymbols = ['AAPL', 'MSFT', 'NVDA'] as const
-const initialProfile: Profile = { userId: 'demo-user', nickname: 'Alex Morgan', startingBalance: 10_000, cashBalance: 4_713.5 }
+const initialProfile: Profile = { userId: '', nickname: '', startingBalance: 0, cashBalance: 0 }
 function money(value: number) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value) }
 function dateLabel(value: string) { return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value)) }
 
@@ -96,6 +96,21 @@ function App() {
           setLoadState('ready')
           setSignedIn(true)
           setAuthLoading(false)
+          // Keep showing the last stored valuation if the quote provider is
+          // unavailable; a market-data outage must not block authentication.
+          void refreshMyPortfolioValuation().then(async (refreshed) => {
+            if (!refreshed || !active || request !== generation) return
+            const [latestProfile, latest] = await Promise.all([getMyProfile(), getMyPortfolioData()])
+            if (!active || request !== generation || !latestProfile) return
+            setProfile(latestProfile)
+            setPositions(latest.positions)
+            setPortfolioSnapshots(latest.snapshots)
+            setSnapshot(latest.snapshots.at(-1) ?? null)
+          }).catch(() => {
+            if (active && request === generation) {
+              setToast('Latest portfolio valuation unavailable; displaying last recorded values.')
+            }
+          })
         }).catch((error: unknown) => {
           if (!active || request !== generation) return
           setSignedIn(false)
