@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import type { WatchlistItem } from '../../types'
+import type { Quote, WatchlistItem } from '../../types'
+import { getCachedQuote } from '../../lib/quoteCache'
 import './WatchlistPanel.css'
 
 interface WatchlistPanelProps {
@@ -59,7 +60,7 @@ export function WatchlistPanel({ items, onAdd, onRemove }: WatchlistPanelProps) 
       ? <div className="watchlist-list">{items.map((item) =>
           <div className="watch-row" key={item.symbol}>
             <span className={`asset-icon asset-${item.symbol.toLowerCase()}`}>{item.symbol.slice(0, 1)}</span>
-            <div className="watch-name"><b>{item.symbol}</b><small>Market quote pending</small></div>
+            <div className="watch-name"><b>{item.symbol}</b><WatchlistQuote symbol={item.symbol} /></div>
             <button
               type="button"
               className="watchlist-remove"
@@ -88,6 +89,38 @@ export function WatchlistPanel({ items, onAdd, onRemove }: WatchlistPanelProps) 
       </button>
     </form>
     {error && <p role="alert" className="watchlist-error">{error}</p>}
-    <p className="watchlist-hint">Live prices will be connected after Issue #5.</p>
+    <p className="watchlist-hint">Latest available daily close · not a real-time quote.</p>
   </div>
+}
+
+type QuoteLoad =
+  | { status: 'loading' }
+  | { status: 'ready'; quote: Quote }
+  | { status: 'error'; message: string }
+
+function WatchlistQuote({ symbol }: { symbol: string }) {
+  const [load, setLoad] = useState<QuoteLoad>({ status: 'loading' })
+
+  useEffect(() => {
+    let active = true
+    getCachedQuote(symbol)
+      .then((quote) => { if (active) setLoad({ status: 'ready', quote }) })
+      .catch((cause: unknown) => {
+        if (active) setLoad({ status: 'error', message: cause instanceof Error ? cause.message : 'Quote unavailable' })
+      })
+    return () => { active = false }
+  }, [symbol])
+
+  if (load.status === 'loading') return <small>Loading latest close…</small>
+  if (load.status === 'error') {
+    return <small className="watchlist-quote-error" title={load.message}>Quote unavailable</small>
+  }
+
+  const day = new Date(load.quote.asOf).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  })
+  const price = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(load.quote.price)
+  return <small className="watchlist-quote" aria-label={`${symbol} daily close ${price} as of ${day}`}>
+    {price} <span>· {day} close</span>
+  </small>
 }
