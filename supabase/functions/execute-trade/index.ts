@@ -1,31 +1,71 @@
 /**
- * RPTS protected order endpoint (Issue #7).
+ * RPTS protected order endpoint (Issue #7 / #8).
  *
  * POST { symbol: "AAPL", side: "BUY" | "SELL", quantity: 1 }
- * The browser never submits userId or price. Auth is enforced by withSupabase.
- *
- * Temporary test quotes must be explicitly enabled through the Edge Function
- * secret RPTS_USE_TEST_QUOTES=true. Replace getExecutionPrice() with the real
- * server-side market quote adapter in Issue #8 (from Issue #5).
+ * The browser never submits a user ID or execution price.
+ * The server obtains the latest available daily close from market-data.
+ * Orders are simulated, not routed to an exchange.
  */
 import { withSupabase } from 'npm:@supabase/server@^1'
 
 type OrderPayload = { symbol: string; side: 'BUY' | 'SELL'; quantity: number }
+type DailyQuote = { symbol: string; price: number; currency: 'USD'; asOf: string }
+type PriceResult =
+  | { quote: DailyQuote; executionPrice: number }
+  | { error: string }
 
-const TEST_PRICES_USD: Readonly<Record<string, number>> = {
-  AAPL: 100,
-  MSFT: 200,
-  NVDA: 150,
+// Keep a generous calendar-day window for weekends and US market holidays.
+// Reject genuinely stale data rather than silently executing at old quotes.
+const MAX_QUOTE_AGE_DAYS = 7
+
+function isDailyQuote(value: unknown, symbol: string): value is DailyQuote {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const quote = value as Record<string, unknown>
+  return quote.symbol === symbol &&
+    quote.currency === 'USD' &&
+    typeof quote.price === 'number' &&
+    Number.isFinite(quote.price) &&
+    quote.price > 0 &&
+    typeof quote.asOf === 'string' &&
+    /^\d{4}-\d{2}-\d{2}T00:00:00\.000Z$/.test(quote.asOf) &&
+    !Number.isNaN(Date.parse(quote.asOf))
 }
 
-async function getExecutionPrice(symbol: string): Promise<number | null> {
-  // Only for testing! Do not ship final MVP with hardcoded prices.
-  if (Deno.env.get('RPTS_USE_TEST_QUOTES') === 'true') {
-    return TEST_PRICES_USD[symbol] ?? null
-  }
+async function getExecutionQuote(
+  symbol: string,
+  supabaseAdmin: { functions: { invoke: (name: string, options: { body: unknown }) => Promise<{ data: unknown; error: unknown }> } },
+): Promise<PriceResult> {
+  try {
+    // A privileged server-to-server call: the market-data Edge Function
+    // accepts a secret key on apikey. Never expose that key to the frontend.
+    const { data, error } = await supabaseAdmin.functions.invoke('market-data', {
+      body: { symbol, type: 'quote' },
+    })
+    if (error) {
+      console.error('Server-side market quote request failed:', error instanceof Error ? error.message : 'unknown error')
+      return { error: 'Market quote unavailable. No trade was executed. Please try again later.' }
+    }
+    if (!isDailyQuote(data, symbol)) {
+      return { error: 'Market data returned an invalid quote. No trade was executed.' }
+    }
 
-  // TODO #8: integrate server-side quote provider created in #5.
-  return null
+    const quoteTime = Date.parse(data.asOf)
+    const ageDays = (Date.now() - quoteTime) / 86_400_000
+    if (ageDays < -1 || ageDays > MAX_QUOTE_AGE_DAYS) {
+      return { error: 'The latest daily price is too old to execute a paper trade. No trade was executed.' }
+    }
+
+    // The atomic DB RPC records USD prices to cent precision.
+    const executionPrice = Math.round(data.price * 100) / 100
+    if (!Number.isFinite(executionPrice) || executionPrice <= 0) {
+      return { error: 'Market data returned an invalid execution price. No trade was executed.' }
+    }
+
+    return { quote: data, executionPrice }
+  } catch (error) {
+    console.error('Server-side market quote request failed:', error instanceof Error ? error.message : 'unknown error')
+    return { error: 'Market quote unavailable. No trade was executed. Please try again later.' }
+  }
 }
 
 function validateOrder(value: unknown): OrderPayload | null {
@@ -37,7 +77,7 @@ function validateOrder(value: unknown): OrderPayload | null {
   const side = v.side.toUpperCase()
   const quantity = v.quantity
 
-  if (!/^[A-Z][A-Z0-9.-]{0,14}$/.test(symbol)) return null
+  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) return null
   if (side !== 'BUY' && side !== 'SELL') return null
   if (typeof quantity !== 'number' || !Number.isSafeInteger(quantity) || quantity <= 0 || quantity > 10000) return null
 
@@ -70,12 +110,9 @@ export default {
       )
     }
 
-    const executionPrice = await getExecutionPrice(order.symbol)
-    if (executionPrice === null) {
-      return Response.json(
-        { error: 'Server-side quote unavailable; connect market data API or enable test quotes' },
-        { status: 503 },
-      )
+    const price = await getExecutionQuote(order.symbol, ctx.supabaseAdmin)
+    if ('error' in price) {
+      return Response.json({ error: price.error }, { status: 503 })
     }
 
     const { data, error } = await ctx.supabaseAdmin.rpc('execute_paper_trade', {
@@ -83,7 +120,7 @@ export default {
       p_symbol: order.symbol,
       p_side: order.side,
       p_quantity: order.quantity,
-      p_execution_price: executionPrice,
+      p_execution_price: price.executionPrice,
     })
 
     if (error) {
@@ -94,6 +131,10 @@ export default {
       return Response.json({ error: 'Could not execute trade' }, { status: 500 })
     }
 
-    return Response.json({ ...data, priceSource: 'test-only' })
+    return Response.json({
+      ...data,
+      priceSource: 'alpha-vantage-daily-close',
+      quoteAsOf: price.quote.asOf,
+    })
   }),
 }

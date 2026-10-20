@@ -1,0 +1,16 @@
+.watchlist-heading-star{color:#9baaa0;font-size:21px;padding:0 5px}
+.watchlist-remove{flex:none;border:0;background:transparent;color:#929f96;font-size:20px;line-height:1;padding:5px 8px;border-radius:5px;cursor:pointer}
+.watchlist-remove:hover{background:#fceeee;color:#b94e4e}
+.watchlist-remove:disabled{opacity:.5;cursor:wait}
+.watchlist-empty{padding:18px 16px;font-size:11px;color:#9aa39e}
+.watchlist-add-form{display:flex;gap:8px;margin:9px 16px 5px;padding-top:12px;border-top:1px dashed #e8ede9}
+.watchlist-symbol-input{flex:1;min-width:0;padding:9px 10px;border:1px solid #dce4de;border-radius:6px;color:#344139;background:#fff;font-size:11px}
+.watchlist-symbol-input:focus{outline:2px solid #bdd7c4;outline-offset:1px}
+.watchlist-add-button{background:#247950;color:#fff;font-size:11px;font-weight:700;border:0;border-radius:6px;padding:8px 13px;cursor:pointer}
+.watchlist-add-button:disabled{opacity:.55;cursor:wait}
+.watchlist-error{color:#b94e4e;margin:6px 16px 0;font-size:10px;line-height:1.4}
+.watchlist-hint{margin:9px 16px 13px;font-size:9px;color:#9aa49e}
+
+.watchlist-quote{display:block;margin-top:3px;color:#277a53;font-weight:700;white-space:nowrap}
+.watchlist-quote span{color:#819189;font-size:9px;font-weight:400}
+.watchlist-quote-error{color:#b94e4e;cursor:help}

@@ -4,8 +4,12 @@ import { ChartFrame } from './ChartFrame'
 import { formatChartDate, formatUsd } from './formatters'
 
 export function StockPriceChart({ data, symbol }: { data: PricePoint[]; symbol: string }) {
-  const lastUpdated = data.at(-1)?.timestamp
-  return <ChartFrame title={`${symbol} price`} subtitle="Mock price history · USD per share" lastUpdated={lastUpdated} empty={data.length === 0}>
+  // The provider returns a trading *date*, not an intraday market timestamp.
+  const lastDay = data.at(-1)?.timestamp
+  const tradingDate = lastDay
+    ? new Date(lastDay).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+    : null
+  return <ChartFrame title={`${symbol} price`} subtitle={`Daily closing prices · USD per share${tradingDate ? ` · Through ${tradingDate}` : ''}`} empty={data.length === 0}>
     <div className="chart-plot"><ResponsiveContainer width="100%" height="100%"><LineChart data={data} margin={{ top: 12, right: 14, bottom: 2, left: 0 }}>
       <CartesianGrid stroke="#edf1ed" vertical={false} />
       <XAxis dataKey="timestamp" tickFormatter={(value: string) => formatChartDate(value)} tickLine={false} axisLine={false} minTickGap={26} />
