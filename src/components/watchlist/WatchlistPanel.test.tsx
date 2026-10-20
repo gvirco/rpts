@@ -5,9 +5,24 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { WatchlistPanel } from './WatchlistPanel'
 
+vi.mock('../../lib/quoteCache', () => ({
+  getCachedQuote: vi.fn(async (symbol: string) => ({
+    symbol, price: 342.94, currency: 'USD', asOf: '2026-10-19T00:00:00.000Z',
+  })),
+}))
+
 afterEach(() => cleanup())
 
 describe('watchlist controls', () => {
+  it('shows latest available daily close and trading date for a followed stock', async () => {
+    render(<WatchlistPanel
+      items={[{ userId: 'bob', symbol: 'AAPL' }]}
+      onAdd={vi.fn()}
+      onRemove={vi.fn()}
+    />)
+    expect(await screen.findByLabelText('AAPL daily close $342.94 as of Oct 19, 2026')).toBeInTheDocument()
+  })
+
   it('submits uppercase symbols through the persistent add handler', async () => {
     const user = userEvent.setup()
     const onAdd = vi.fn().mockResolvedValue(undefined)
